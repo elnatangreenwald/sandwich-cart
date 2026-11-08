@@ -777,17 +777,29 @@
     box.classList.toggle('hidden', hide);
     if (hide) return;
     const now = Date.now();
-    const span = Math.max(1, o.arriveAt - o.createdAt);
-    const frac = Math.min(1, Math.max(0, (now - o.createdAt) / span));
-    const left = Math.ceil((o.arriveAt - now) / 60000);
+    const ready = o.status === 'ready';
+    const { deadline, extensions } = ready ? { deadline: o.arriveAt, extensions: 0 } : orderDeadline(o, now);
+    const frac = extensions
+      ? 1 - (deadline - now) / (EXTEND_BY + EXTEND_AT)
+      : (now - o.createdAt) / Math.max(1, o.arriveAt - o.createdAt);
+    const left = Math.ceil((deadline - now) / 60000);
     const C = 2 * Math.PI * 22;
     const ring = $('.val', box);
     ring.style.strokeDasharray = C;
-    ring.style.strokeDashoffset = C * (1 - frac);
-    $('.txt b', box).textContent = o.status === 'ready'
+    ring.style.strokeDashoffset = C * (1 - Math.min(1, Math.max(0, frac)));
+    $('.txt b', box).textContent = ready
       ? (left > 0 ? `מחכה לך · עוד ${left} דק'` : 'מחכה לך בעגלה 🏃')
-      : (left > 0 ? `מגיעים בעוד ${left} דק'` : 'הגיע הזמן לבוא לאסוף 🏃');
-    $('.txt span', box).textContent = `שעת איסוף משוערת ${timeOf(o.arriveAt)}`;
+      : extensions ? 'עוד 2 דקות מוכן ⏳' : `מגיעים בעוד ${left} דק'`;
+    $('.txt span', box).textContent = `שעת איסוף משוערת ${timeOf(deadline)}`;
+  }
+
+  // While the order isn't ready, every time the countdown hits 20s it gets 2 more minutes.
+  const EXTEND_AT = 20000;
+  const EXTEND_BY = 120000;
+  function orderDeadline(o, now) {
+    if (o.arriveAt - now > EXTEND_AT) return { deadline: o.arriveAt, extensions: 0 };
+    const extensions = Math.floor((now - o.arriveAt + EXTEND_AT) / EXTEND_BY) + 1;
+    return { deadline: o.arriveAt + extensions * EXTEND_BY, extensions };
   }
 
   function updatePushCard() {
@@ -805,6 +817,7 @@
   let timerId = null;
   let timerStatus = null;
   let timerHideT = null;
+  let timerExt = null;
   const RING = 2 * Math.PI * 52;
   const TIMER_STATUS = { new: 'התקבלה 📨', preparing: 'בהכנה 🔥', ready: '🎉' };
   const pad2 = (n) => String(n).padStart(2, '0');
@@ -852,6 +865,7 @@
     clearTimeout(timerHideT);
     const appearing = el.classList.contains('hidden') || el.classList.contains('leaving');
     const changed = timerId !== o.id || timerStatus !== o.status;
+    if (timerId !== o.id) timerExt = null;
     timerId = o.id;
     timerStatus = o.status;
     el.dataset.state = o.status;
@@ -878,23 +892,32 @@
     let big;
     let label;
     let frac = 1;
+    let extensions = 0;
     if (o.status === 'ready') {
       big = 'מוכן!';
       label = 'לאיסוף 🛍️';
     } else {
       const now = Date.now();
-      const left = Math.max(0, Math.ceil((o.arriveAt - now) / 1000));
-      frac = Math.min(1, Math.max(0, (now - o.createdAt) / Math.max(1, o.arriveAt - o.createdAt)));
-      if (left > 0) {
-        const h = Math.floor(left / 3600);
-        const m = Math.floor((left % 3600) / 60);
-        big = h ? `${h}:${pad2(m)}:${pad2(left % 60)}` : `${pad2(m)}:${pad2(left % 60)}`;
-        label = 'עד האיסוף';
-      } else {
-        big = 'עוד רגע';
-        label = o.status === 'preparing' ? 'מסיימים להכין' : 'כמעט מתחילים';
-      }
+      const d = orderDeadline(o, now);
+      extensions = d.extensions;
+      const left = Math.max(0, Math.ceil((d.deadline - now) / 1000));
+      frac = extensions
+        ? 1 - (d.deadline - now) / (EXTEND_BY + EXTEND_AT)
+        : (now - o.createdAt) / Math.max(1, o.arriveAt - o.createdAt);
+      frac = Math.min(1, Math.max(0, frac));
+      const h = Math.floor(left / 3600);
+      const m = Math.floor((left % 3600) / 60);
+      big = h ? `${h}:${pad2(m)}:${pad2(left % 60)}` : `${pad2(m)}:${pad2(left % 60)}`;
+      label = extensions ? 'עוד 2 דקות מוכן' : 'עד האיסוף';
     }
+    if (timerExt !== null && extensions > timerExt) {
+      replay(el, 'timer-extend');
+      replay($('.ot-plus', el), 'show');
+      vibrate([30, 50, 30]);
+      if (document.visibilityState === 'visible') notify('⏳', 'עוד 2 דקות מוכן', 'מסיימים להכין לך');
+    }
+    timerExt = extensions;
+    el.classList.toggle('extended', extensions > 0);
     $('.ot-time', el).textContent = big;
     $('.ot-label', el).textContent = label;
     el.classList.toggle('long', big.length > 5);

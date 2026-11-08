@@ -209,6 +209,31 @@ main { max-width: 640px; margin: 0 auto; padding: 8px 14px calc(120px + var(--sa
   100% { transform: scale(1) rotate(0); }
 }
 .otimer.timer-bump { animation: popKf .45s var(--spring); }
+
+/* extra time: amber ring, "+2 דקות" floats up */
+.otimer.extended .ot-label { font-size: 10.5px; color: #c2410c; font-weight: 800; }
+.otimer.extended .ot-val { stroke: #ffb43b; }
+.otimer.extended .ot-sweep i { box-shadow: 0 0 0 2px #ffb43b, 0 0 12px rgba(255, 180, 59, .9); }
+.ot-plus {
+  position: absolute; top: -6px; left: 50%; transform: translateX(-50%); opacity: 0; pointer-events: none;
+  background: linear-gradient(135deg, #ffb43b, var(--accent)); color: #fff; font-size: 13px; font-weight: 800;
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap; box-shadow: 0 6px 16px rgba(255, 107, 74, .45);
+}
+.ot-plus.show { animation: otPlus 2.2s var(--smooth); }
+@keyframes otPlus {
+  0% { opacity: 0; transform: translate(-50%, 20px) scale(.6); }
+  15% { opacity: 1; transform: translate(-50%, -6px) scale(1.1); }
+  25% { transform: translate(-50%, 0) scale(1); }
+  75% { opacity: 1; transform: translate(-50%, -4px); }
+  100% { opacity: 0; transform: translate(-50%, -22px); }
+}
+.otimer.timer-extend { animation: otExtend .7s var(--spring); }
+@keyframes otExtend {
+  0% { transform: scale(1); }
+  30% { transform: scale(.88) rotate(10deg); }
+  60% { transform: scale(1.1) rotate(-6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
 .otimer.leaving { animation: otOut .35s ease-in forwards; }
 @keyframes otOut { to { transform: scale(0) rotate(90deg); opacity: 0; } }
 
