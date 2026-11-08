@@ -74,7 +74,16 @@ button { cursor: pointer; }
 .badge.muted { background: rgba(43,29,58,0.35); }
 
 main { flex: 1; min-height: 0; padding: 0 10px 10px; }
-.tab-panel { height: 100%; overflow-y: auto; }
+.tab-panel { height: 100%; overflow-y: auto; animation: panelIn .35s cubic-bezier(.2,.9,.3,1); }
+@keyframes panelIn { from { opacity: 0; transform: translateY(10px); } }
+.tab { transition: background .25s, color .25s, transform .2s; }
+.tab:active { transform: scale(.95); }
+.push-on { font-size: 16px; animation: bell 3s ease-in-out infinite; transform-origin: 50% 0; }
+@keyframes bell { 0%, 80%, 100% { transform: rotate(0); } 84% { transform: rotate(16deg); } 88% { transform: rotate(-14deg); } 92% { transform: rotate(8deg); } }
+.oitem .tick { transition: background .2s, border-color .2s, transform .2s cubic-bezier(.2,1.4,.4,1); }
+.oitem .tick:active { transform: scale(.85); }
+.act { transition: transform .15s cubic-bezier(.2,1.4,.4,1), filter .2s; }
+.login { animation: panelIn .5s cubic-bezier(.2,1.4,.4,1); }
 
 /* ---------- board ---------- */
 .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; height: 100%; }

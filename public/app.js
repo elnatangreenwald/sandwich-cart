@@ -1,9 +1,13 @@
 (() => {
   const $ = (sel, el = document) => el.querySelector(sel);
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const money = (n) => `${n} ₪`;
   const timeOf = (ts) => new Date(ts).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' });
   const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date());
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const vibrate = (p) => { if (navigator.vibrate) navigator.vibrate(p); };
 
   const store = {
     get(key, fallback) {
@@ -14,13 +18,13 @@
 
   const ETA_OPTIONS = [5, 10, 15, 20, 30, 45];
   const STATUS = {
-    new: { label: 'ההזמנה התקבלה', emoji: '📝', step: 0 },
-    preparing: { label: 'מכינים לך עכשיו', emoji: '👨‍🍳', step: 1 },
-    ready: { label: 'ההזמנה מוכנה לאיסוף!', emoji: '🎉', step: 2 },
-    picked_up: { label: 'בתיאבון!', emoji: '😋', step: 3 },
-    cancelled: { label: 'ההזמנה בוטלה', emoji: '😕', step: -1 },
+    new: { label: 'ההזמנה התקבלה', sub: 'העגלה קיבלה את ההזמנה שלך ותתחיל להכין בקרוב', emoji: '📨', step: 0, mood: 'sent' },
+    preparing: { label: 'מכינים לך עכשיו', sub: 'הסנדוויץ\' שלך על הקרש 🔪', emoji: '👨‍🍳', step: 1, mood: 'cooking' },
+    ready: { label: 'מוכן לאיסוף!', sub: 'ההזמנה מחכה לך בעגלה', emoji: '🎉', step: 2, mood: 'party' },
+    picked_up: { label: 'בתיאבון!', sub: 'תודה שהזמנת, נתראה בפעם הבאה', emoji: '😋', step: 3, mood: 'done' },
+    cancelled: { label: 'ההזמנה בוטלה', sub: 'לשאלות אפשר לפנות לעגלה', emoji: '😕', step: -1, mood: 'sad' },
   };
-  const STEPS = [['התקבלה', '📝'], ['בהכנה', '👨‍🍳'], ['מוכנה', '🎉'], ['נאספה', '✅']];
+  const STEPS = [['התקבלה', '📨'], ['בהכנה', '🔥'], ['מוכן', '🎉'], ['נאסף', '😋']];
 
   let MENU = null;
   const builder = { bread: null, spreads: [], filling: null, qty: 1 };
@@ -47,84 +51,183 @@
     };
   }
 
-  function itemPrice(item) {
-    return item.type === 'sandwich' ? MENU.menu.prices.sandwich : find('drinks', item.drink)?.price || 0;
-  }
+  const itemPrice = (item) => (item.type === 'sandwich' ? MENU.menu.prices.sandwich : find('drinks', item.drink)?.price || 0);
   const cartCount = () => cart.reduce((n, i) => n + i.qty, 0);
   const cartTotal = () => cart.reduce((n, i) => n + itemPrice(i) * i.qty, 0);
   const saveCart = () => store.set('sc_cart', cart);
 
-  // ---------- toast & fun ----------
-  let toastTimer;
-  function toast(msg) {
-    const t = $('#toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  // ---------- motion helpers ----------
+  function replay(el, cls) {
+    if (!el || reduceMotion) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+    el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
   }
 
-  function confetti() {
+  function countTo(el, to, format = (n) => n) {
+    const from = Number(el.dataset.val || 0);
+    el.dataset.val = to;
+    if (reduceMotion || from === to) { el.textContent = format(to); return; }
+    const start = performance.now();
+    const dur = 450;
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - (1 - t) ** 3;
+      el.textContent = format(Math.round(from + (to - from) * eased));
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function flyToCart(sources) {
+    if (reduceMotion) return Promise.resolve();
+    const bar = $('#openCart').getBoundingClientRect();
+    const target = bar.width
+      ? { x: bar.left + 40, y: bar.top + bar.height / 2 }
+      : { x: innerWidth / 2, y: innerHeight - 50 };
+    return Promise.all(sources.filter(Boolean).map((src, i) => {
+      const r = src.getBoundingClientRect();
+      if (!r.width) return null;
+      const img = document.createElement('img');
+      img.src = src.currentSrc || src.src;
+      img.className = 'flyer';
+      Object.assign(img.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+      document.body.appendChild(img);
+      const dx = target.x - (r.left + r.width / 2);
+      const dy = target.y - (r.top + r.height / 2);
+      return img.animate([
+        { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 },
+        { transform: `translate(${dx * 0.45}px, ${dy * 0.45 - 140}px) scale(0.75) rotate(-25deg)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.15) rotate(20deg)`, opacity: 0.3 },
+      ], { duration: 780, delay: i * 70, easing: 'cubic-bezier(.45,0,.4,1)', fill: 'backwards' }).finished.then(() => img.remove());
+    }));
+  }
+
+  let toastTimer;
+  function notify(icon, title, sub = '', ms = 2600) {
+    const t = $('#toast');
+    $('.t-icon', t).textContent = icon;
+    $('.t-title', t).textContent = title;
+    $('.t-sub', t).textContent = sub;
+    t.classList.toggle('has-sub', Boolean(sub));
+    t.classList.remove('show');
+    void t.offsetWidth;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  function confetti(amount = 80) {
+    if (reduceMotion) return;
     const colors = ['#ff6b4a', '#ffb43b', '#1fb57a', '#ff4d8d', '#7c5cff', '#38bdf8'];
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < amount; i++) {
       const c = document.createElement('i');
       c.className = 'confetti';
       c.style.left = `${Math.random() * 100}vw`;
       c.style.background = colors[i % colors.length];
-      c.style.animationDuration = `${1.8 + Math.random() * 1.6}s`;
-      c.style.animationDelay = `${Math.random() * 0.4}s`;
+      c.style.width = `${6 + Math.random() * 6}px`;
+      c.style.animationDuration = `${1.8 + Math.random() * 1.8}s`;
+      c.style.animationDelay = `${Math.random() * 0.5}s`;
+      c.style.setProperty('--drift', `${(Math.random() - 0.5) * 160}px`);
       document.body.appendChild(c);
-      setTimeout(() => c.remove(), 4000);
+      setTimeout(() => c.remove(), 4500);
     }
   }
 
-  function bump(el) {
-    el.classList.remove('bump');
-    void el.offsetWidth;
-    el.classList.add('bump');
-  }
-
   // ---------- builder ----------
-  function optionButton(cat, item, selected) {
-    return `<button type="button" class="opt" data-cat="${cat}" data-id="${esc(item.id)}" aria-pressed="${selected}" ${item.available ? '' : 'disabled'}>
-      <img src="${esc(item.img)}" alt="" loading="lazy" />
+  function optionButton(cat, item, i) {
+    return `<button type="button" class="opt" style="--i:${i}" data-cat="${cat}" data-id="${esc(item.id)}" aria-pressed="false" ${item.available ? '' : 'disabled'}>
+      <span class="opt-img"><img src="${esc(item.img)}" alt="" loading="lazy" /></span>
       <span class="opt-name">${esc(item.name)}</span>
       <span class="check">✓</span>
       ${item.available ? '' : '<span class="sold-out">אזל</span>'}
     </button>`;
   }
 
-  function renderBuilder() {
+  function renderBuilderOptions() {
     const m = MENU.menu;
     $('#sandwichPrice').textContent = money(m.prices.sandwich);
-    $('#breads').innerHTML = m.breads.map((b) => optionButton('breads', b, builder.bread === b.id)).join('');
-    $('#spreads').innerHTML = m.spreads.map((s) => optionButton('spreads', s, builder.spreads.includes(s.id))).join('');
-    $('#fillings').innerHTML = m.fillings.map((f) => optionButton('fillings', f, builder.filling === f.id)).join('');
-    $('#qty').textContent = builder.qty;
+    $('#breads').innerHTML = m.breads.map((b, i) => optionButton('breads', b, i)).join('');
+    $('#spreads').innerHTML = m.spreads.map((s, i) => optionButton('spreads', s, i)).join('');
+    $('#fillings').innerHTML = m.fillings.map((f, i) => optionButton('fillings', f, i)).join('');
+    if (builder.bread && !available('breads', builder.bread)) builder.bread = null;
+    builder.spreads = builder.spreads.filter((id) => available('spreads', id));
+    if (builder.filling && !available('fillings', builder.filling)) builder.filling = null;
+    syncBuilder();
+  }
 
+  function isSelected(cat, id) {
+    if (cat === 'breads') return builder.bread === id;
+    if (cat === 'spreads') return builder.spreads.includes(id);
+    return builder.filling === id;
+  }
+
+  function syncBuilder() {
+    for (const btn of $$('.builder .opt')) btn.setAttribute('aria-pressed', String(isSelected(btn.dataset.cat, btn.dataset.id)));
+    const stepDone = { 1: Boolean(builder.bread), 2: builder.spreads.length > 0, 3: Boolean(builder.filling) };
+    for (const el of $$('.step-num')) {
+      const done = stepDone[el.dataset.step];
+      if (done && !el.classList.contains('done')) replay(el, 'pop');
+      el.classList.toggle('done', done);
+    }
+    $('#qty').textContent = builder.qty;
     const ready = Boolean(builder.bread);
     $('#addSandwich').disabled = !ready;
     $('#saveFav').disabled = !ready;
-    $('#addSandwich').textContent = ready ? `הוספה לסל · ${money(m.prices.sandwich * builder.qty)}` : 'הוספה לסל';
-    if (ready) {
-      const t = sandwichText(builder);
-      $('#builderSummary').innerHTML = `🥪 <b>&nbsp;${esc(t.title)}</b>&nbsp;·&nbsp;${esc(t.sub)}`;
-    } else {
-      $('#builderSummary').textContent = 'בחרו לחם כדי להתחיל 👆';
+    $('#addSandwich').textContent = ready ? `הוספה לסל · ${money(MENU.menu.prices.sandwich * builder.qty)}` : 'הוספה לסל';
+    renderTray();
+  }
+
+  function trayItems() {
+    const items = [];
+    if (builder.bread) items.push({ key: `b:${builder.bread}`, ...find('breads', builder.bread) });
+    for (const id of builder.spreads) items.push({ key: `s:${id}`, ...find('spreads', id) });
+    if (builder.filling) items.push({ key: `f:${builder.filling}`, ...find('fillings', builder.filling) });
+    return items;
+  }
+
+  function renderTray() {
+    const tray = $('#tray');
+    const items = trayItems();
+    const keys = new Set(items.map((i) => i.key));
+    for (const el of $$('.ing:not(.leaving)', tray)) {
+      if (keys.has(el.dataset.key)) continue;
+      if (reduceMotion) { el.remove(); continue; }
+      el.classList.add('leaving');
+      el.addEventListener('animationend', () => el.remove(), { once: true });
     }
+    const live = () => $$('.ing:not(.leaving)', tray);
+    items.forEach((it, idx) => {
+      if (live().some((el) => el.dataset.key === it.key)) return;
+      const el = document.createElement('span');
+      el.className = 'ing';
+      el.dataset.key = it.key;
+      el.innerHTML = `<img src="${esc(it.img)}" alt="" /><span>${esc(it.name)}</span>`;
+      const next = items.slice(idx + 1).map((n) => live().find((e) => e.dataset.key === n.key)).find(Boolean);
+      tray.insertBefore(el, next || null);
+    });
+    $('#trayEmpty').classList.toggle('gone', items.length > 0);
   }
 
   function onOptionClick(e) {
     const btn = e.target.closest('.opt');
     if (!btn || btn.disabled) return;
     const { cat, id } = btn.dataset;
+    const firstBread = cat === 'breads' && !builder.bread;
     if (cat === 'breads') builder.bread = id;
     if (cat === 'fillings') builder.filling = builder.filling === id ? null : id;
     if (cat === 'spreads') {
       builder.spreads = builder.spreads.includes(id) ? builder.spreads.filter((x) => x !== id) : [...builder.spreads, id];
     }
-    if (navigator.vibrate) navigator.vibrate(8);
-    renderBuilder();
+    vibrate(8);
+    syncBuilder();
+    if (isSelected(cat, id)) replay(btn, 'just');
+    if (firstBread && !reduceMotion) {
+      const step2 = $('#step2').getBoundingClientRect();
+      if (step2.bottom > innerHeight - 90) $('#step2').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      replay($('#step2'), 'nudge');
+    }
   }
 
   function addSandwichToCart(s, qty) {
@@ -134,7 +237,13 @@
     if (existing) existing.qty = Math.min(20, existing.qty + qty);
     else cart.push({ ...item, qty });
     saveCart();
-    renderCartBar();
+  }
+
+  async function afterAdd(sources) {
+    const wasHidden = $('#cartBar').classList.contains('hidden');
+    if (wasHidden) renderCartBar(false);
+    await flyToCart(sources);
+    renderCartBar(true);
   }
 
   // ---------- favorites ----------
@@ -147,7 +256,7 @@
       const t = sandwichText(f);
       const imgs = [find('breads', f.bread), f.filling && find('fillings', f.filling), ...f.spreads.slice(0, 2).map((id) => find('spreads', id))]
         .filter(Boolean).map((x) => `<img src="${esc(x.img)}" alt="" />`).join('');
-      return `<div class="fav glass">
+      return `<div class="fav glass" style="--i:${idx}">
         <button type="button" class="fav-del" data-del="${idx}" aria-label="מחיקה">✕</button>
         <div class="fav-imgs">${imgs}</div>
         <div class="fav-label"><b>${esc(t.title)}</b><br><small>${esc(t.sub)}</small></div>
@@ -156,9 +265,11 @@
     }).join('');
   }
 
-  function onFavoritesClick(e) {
+  async function onFavoritesClick(e) {
     const del = e.target.closest('[data-del]');
     if (del) {
+      const card = del.closest('.fav');
+      if (!reduceMotion) await card.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(.6)', opacity: 0 }], { duration: 220, easing: 'ease-in' }).finished;
       favorites.splice(Number(del.dataset.del), 1);
       store.set('sc_favorites', favorites);
       renderFavorites();
@@ -167,37 +278,42 @@
     const add = e.target.closest('[data-fav]');
     if (add && !add.disabled) {
       addSandwichToCart(favorites[Number(add.dataset.fav)], 1);
-      bump(add);
-      toast('הקבוע שלך בסל ⭐');
+      replay(add, 'bump');
+      vibrate(15);
+      notify('⭐', 'הקבוע שלך בסל');
+      afterAdd($$('.fav-imgs img', add.closest('.fav')));
     }
   }
 
   function saveFavorite() {
     if (!builder.bread) return;
     const fav = { bread: builder.bread, spreads: [...builder.spreads], filling: builder.filling };
-    if (favorites.some((f) => sandwichKey(f) === sandwichKey(fav))) { toast('הסנדוויץ\' הזה כבר שמור אצלך ⭐'); return; }
+    if (favorites.some((f) => sandwichKey(f) === sandwichKey(fav))) { notify('⭐', 'כבר שמור אצלך'); return; }
     favorites.unshift(fav);
     favorites = favorites.slice(0, 8);
     store.set('sc_favorites', favorites);
     renderFavorites();
-    toast('נשמר כסנדוויץ\' קבוע ⭐');
+    replay($('#favoritesSection'), 'nudge');
+    notify('⭐', 'נשמר כסנדוויץ\' קבוע', 'בפעם הבאה מזמינים בלחיצה אחת');
   }
 
   // ---------- drinks ----------
-  function renderDrinks() {
-    $('#drinks').innerHTML = MENU.menu.drinks.map((d) => {
-      const inCart = cart.find((i) => i.type === 'drink' && i.drink === d.id);
+  function renderDrinks(changedId) {
+    $('#drinks').innerHTML = MENU.menu.drinks.map((d, i) => {
+      const inCart = cart.find((x) => x.type === 'drink' && x.drink === d.id);
       const control = !d.available
         ? '<button type="button" class="btn ghost add-drink" disabled>אזל</button>'
         : inCart
           ? `<div class="stepper small"><button type="button" data-drink-minus="${esc(d.id)}">−</button><span>${inCart.qty}</span><button type="button" data-drink-plus="${esc(d.id)}">+</button></div>`
           : `<button type="button" class="btn ghost add-drink" data-drink-plus="${esc(d.id)}">+ הוספה</button>`;
-      return `<div class="drink glass ${d.available ? '' : 'disabled'}">
-        <img src="${esc(d.img)}" alt="${esc(d.name)}" loading="lazy" />
+      return `<div class="drink glass ${d.available ? '' : 'disabled'} ${inCart ? 'in-cart' : ''}" style="--i:${i}" data-drink="${esc(d.id)}">
+        ${inCart ? `<span class="drink-badge">${inCart.qty}</span>` : ''}
+        <span class="drink-img"><img src="${esc(d.img)}" alt="${esc(d.name)}" loading="lazy" /></span>
         <div class="drink-row"><span class="drink-name">${esc(d.name)}</span><span class="drink-price">${money(d.price)}</span></div>
         ${control}
       </div>`;
     }).join('');
+    if (changedId) replay($(`.drink[data-drink="${CSS.escape(changedId)}"]`), 'bump');
   }
 
   function changeDrink(id, delta) {
@@ -208,22 +324,26 @@
       if (cart[idx].qty <= 0) cart.splice(idx, 1);
     }
     saveCart();
-    renderDrinks();
-    renderCartBar();
+    const src = delta > 0 ? $(`.drink[data-drink="${CSS.escape(id)}"] img`) : null;
+    renderDrinks(id);
+    vibrate(10);
+    if (src) afterAdd([src]);
+    else renderCartBar(true);
   }
 
   // ---------- cart ----------
-  function renderCartBar() {
+  function renderCartBar(animate) {
     const bar = $('#cartBar');
     if (!cart.length) { bar.classList.add('hidden'); return; }
     bar.classList.remove('hidden');
-    $('#cartBarInfo').textContent = `${cartCount()} פריטים · ${money(cartTotal())}`;
-    bump($('#openCart'));
+    countTo($('#cartCount'), cartCount());
+    countTo($('#cartBarTotal'), cartTotal(), money);
+    if (animate) { replay($('#openCart'), 'bump'); replay($('.cart-ico'), 'wiggle'); }
   }
 
   function renderCartList() {
     $('#cartList').innerHTML = cart.map((item, idx) => {
-      let img, title, sub;
+      let img; let title; let sub;
       if (item.type === 'sandwich') {
         const t = sandwichText(item);
         img = find('breads', item.bread)?.img;
@@ -232,28 +352,40 @@
         const d = find('drinks', item.drink);
         img = d?.img; title = d?.name || ''; sub = 'שתייה';
       }
-      return `<li class="cart-line">
+      return `<li class="cart-line" style="--i:${idx}" data-line="${idx}">
         <img src="${esc(img || '')}" alt="" />
         <div class="desc"><b>${esc(title)}</b><small>${esc(sub)}</small></div>
         <div class="stepper small"><button type="button" data-line-minus="${idx}">−</button><span>${item.qty}</span><button type="button" data-line-plus="${idx}">+</button></div>
         <span class="line-price">${money(itemPrice(item) * item.qty)}</span>
       </li>`;
-    }).join('') || '<li class="cart-line">הסל ריק</li>';
-    $('#submitTotal').textContent = money(cartTotal());
+    }).join('');
+    countTo($('#submitTotal'), cartTotal(), money);
     $('#submitOrder').disabled = !cart.length;
   }
 
-  function onCartListClick(e) {
-    const minus = e.target.closest('[data-line-minus]');
-    const plus = e.target.closest('[data-line-plus]');
-    if (!minus && !plus) return;
-    const idx = Number((minus || plus).dataset.lineMinus ?? (minus || plus).dataset.linePlus);
+  async function onCartListClick(e) {
+    const btn = e.target.closest('[data-line-minus],[data-line-plus]');
+    if (!btn) return;
+    const plus = btn.hasAttribute('data-line-plus');
+    const idx = Number(plus ? btn.dataset.linePlus : btn.dataset.lineMinus);
+    const line = btn.closest('.cart-line');
+    if (!plus && cart[idx].qty === 1 && !reduceMotion) {
+      line.style.height = `${line.offsetHeight}px`;
+      await line.animate([
+        { transform: 'translateX(0)', opacity: 1, height: `${line.offsetHeight}px` },
+        { transform: 'translateX(-60px)', opacity: 0, height: `${line.offsetHeight}px`, offset: 0.6 },
+        { transform: 'translateX(-60px)', opacity: 0, height: '0px', paddingTop: '0px', paddingBottom: '0px', marginTop: '-10px' },
+      ], { duration: 380, easing: 'ease-in' }).finished;
+    }
     cart[idx].qty = Math.min(20, cart[idx].qty + (plus ? 1 : -1));
     if (cart[idx].qty <= 0) cart.splice(idx, 1);
     saveCart();
     renderCartList();
-    renderCartBar();
+    const updated = $(`.cart-line[data-line="${idx}"] .line-price`);
+    if (updated && cart[idx]) replay(updated, 'bump');
+    renderCartBar(false);
     renderDrinks();
+    vibrate(8);
     if (!cart.length) closeSheet();
   }
 
@@ -261,71 +393,171 @@
     renderCartList();
     renderEta();
     $('#formError').classList.add('hidden');
-    $('#sheet').classList.remove('hidden');
+    const sheet = $('#sheet');
+    sheet.classList.remove('hidden', 'closing');
+    sheet.classList.add('entering');
+    setTimeout(() => sheet.classList.remove('entering'), 900);
     document.body.style.overflow = 'hidden';
   }
-  function closeSheet() {
-    $('#sheet').classList.add('hidden');
+
+  async function closeSheet() {
+    const sheet = $('#sheet');
+    if (sheet.classList.contains('hidden')) return;
+    if (!reduceMotion) {
+      sheet.classList.add('closing');
+      await wait(280);
+    }
+    sheet.classList.add('hidden');
+    sheet.classList.remove('closing');
     document.body.style.overflow = '';
   }
 
   // ---------- ETA ----------
   function renderEta() {
     $('#etaChips').innerHTML = ETA_OPTIONS.map((m) => `<button type="button" class="chip" data-eta="${m}" aria-pressed="${eta === m && !$('#fEtaCustom').value}">${m} דק'</button>`).join('');
-    $('#etaHint').textContent = eta === null ? '' : eta === 0 ? '🏃 אני כבר כאן!' : `⏰ נגיע בערך ב-${timeOf(Date.now() + eta * 60000)}`;
+    const hint = $('#etaHint');
+    const text = eta === null ? '' : eta === 0 ? '🏃 אני כבר כאן!' : `⏰ נגיע בערך ב-${timeOf(Date.now() + eta * 60000)}`;
+    if (hint.textContent !== text) { hint.textContent = text; replay(hint, 'pop'); }
+  }
+
+  // ---------- push notifications ----------
+  const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const pushState = {};
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      if (ev.data && ev.data.type === 'order-push') refreshCurrentOrder();
+    });
+  }
+
+  function b64ToBytes(base64) {
+    const pad = '='.repeat((4 - (base64.length % 4)) % 4);
+    const raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+
+  async function subscribePush(orderId) {
+    if (!pushSupported || Notification.permission !== 'granted') return false;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const { key } = await (await fetch('/api/push/key')).json();
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && localStorage.getItem('sc_push_key') !== key) { await sub.unsubscribe(); sub = null; }
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+        localStorage.setItem('sc_push_key', key);
+      }
+      const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      });
+      pushState[orderId] = res.ok;
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function askPermission() {
+    if (!pushSupported || Notification.permission !== 'default') return Promise.resolve(pushSupported ? Notification.permission : 'unsupported');
+    return Notification.requestPermission();
+  }
+
+  function pushCardHtml(orderId, status) {
+    if (['picked_up', 'cancelled'].includes(status)) return '';
+    if (pushState[orderId]) return '<div class="push-card on"><span class="bell ring">🔔</span><span>נשלח לך התראה לטלפון ברגע שההזמנה מוכנה</span></div>';
+    if (pushSupported && Notification.permission === 'default') {
+      return `<button type="button" class="push-card ask" data-enable-push><span class="bell">🔔</span><span><b>רוצים התראה כשמוכן?</b><small>גם כשהאתר סגור</small></span><span class="go">הפעלה</span></button>`;
+    }
+    if (pushSupported && Notification.permission === 'denied') {
+      return '<div class="push-card muted"><span class="bell">🔕</span><span>ההתראות חסומות בדפדפן. נעדכן אותך כאן במסך</span></div>';
+    }
+    if (isIOS && !isStandalone) {
+      return '<div class="push-card muted"><span class="bell">📲</span><span>באייפון: לחצו על <b>שיתוף</b> ואז <b>"הוספה למסך הבית"</b>, ופתחו משם כדי לקבל התראות</span></div>';
+    }
+    return '';
   }
 
   // ---------- submit ----------
   async function submitOrder(e) {
     e.preventDefault();
     const err = $('#formError');
-    const showErr = (msg) => { err.textContent = msg; err.classList.remove('hidden'); };
+    const btn = $('#submitOrder');
+    const showErr = (msg) => {
+      err.textContent = msg;
+      err.classList.remove('hidden');
+      replay(err, 'shake');
+      vibrate([30, 40, 30]);
+    };
     err.classList.add('hidden');
 
     const name = $('#fName').value.trim();
     const phone = $('#fPhone').value.replace(/\D/g, '');
-    if (!name) return showErr('נא למלא שם');
-    if (!/^0\d{8,9}$/.test(phone)) return showErr('נא למלא מספר טלפון תקין');
-    if (eta === null) return showErr('נא לבחור בעוד כמה דקות תגיעו');
+    if (!name) { replay($('#fName'), 'shake'); return showErr('נא למלא שם'); }
+    if (!/^0\d{8,9}$/.test(phone)) { replay($('#fPhone'), 'shake'); return showErr('נא למלא מספר טלפון תקין'); }
+    if (eta === null) { replay($('.eta-block'), 'shake'); return showErr('נא לבחור בעוד כמה דקות תגיעו'); }
 
-    const btn = $('#submitOrder');
+    // Must be requested synchronously inside the tap, before any await.
+    const permission = askPermission();
+
     btn.disabled = true;
-    btn.firstElementChild.textContent = 'שולחים...';
+    btn.classList.add('loading');
+    let data;
     try {
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name, phone, notes: $('#fNotes').value, etaMinutes: eta,
-          items: cart.map((i) => (i.type === 'sandwich'
-            ? { type: 'sandwich', bread: i.bread, spreads: i.spreads, filling: i.filling, qty: i.qty }
-            : { type: 'drink', drink: i.drink, qty: i.qty })),
+      const [res] = await Promise.all([
+        fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name, phone, notes: $('#fNotes').value, etaMinutes: eta,
+            items: cart.map((i) => (i.type === 'sandwich'
+              ? { type: 'sandwich', bread: i.bread, spreads: i.spreads, filling: i.filling, qty: i.qty }
+              : { type: 'drink', drink: i.drink, qty: i.qty })),
+          }),
         }),
-      });
-      const data = await res.json().catch(() => ({}));
+        wait(reduceMotion ? 0 : 700),
+      ]);
+      data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        btn.classList.remove('loading');
+        btn.disabled = false;
         if (data.menuChanged) await refreshMenuAfterChange();
         return showErr(data.error || 'משהו השתבש, נסו שוב');
       }
-      store.set('sc_profile', { name, phone });
-      const mine = myOrders();
-      mine.ids.push(data.id);
-      store.set('sc_orders', mine);
-      cart = [];
-      saveCart();
-      $('#fNotes').value = '';
-      eta = null;
-      $('#fEtaCustom').value = '';
-      closeSheet();
-      renderAll();
-      confetti();
-      showStatus(data.id, data);
     } catch {
-      showErr('אין חיבור לשרת, נסו שוב');
-    } finally {
-      btn.disabled = !cart.length;
-      btn.firstElementChild.textContent = 'שליחת הזמנה';
+      btn.classList.remove('loading');
+      btn.disabled = false;
+      return showErr('אין חיבור לשרת, נסו שוב');
     }
+
+    btn.classList.remove('loading');
+    btn.classList.add('success');
+    vibrate([20, 60, 40]);
+    store.set('sc_profile', { name, phone });
+    const mine = myOrders();
+    mine.ids.push(data.id);
+    store.set('sc_orders', mine);
+    cart = [];
+    saveCart();
+    $('#fNotes').value = '';
+    eta = null;
+    $('#fEtaCustom').value = '';
+
+    permission.then((p) => (p === 'granted' ? subscribePush(data.id) : false)).then(() => {
+      if (currentOrderId === data.id) updatePushCard();
+    });
+
+    await wait(reduceMotion ? 0 : 900);
+    await closeSheet();
+    btn.classList.remove('success');
+    btn.disabled = false;
+    renderAll();
+    confetti();
+    showStatus(data.id, data);
   }
 
   async function refreshMenuAfterChange() {
@@ -333,9 +565,10 @@
     const before = cart.length;
     cart = cart.filter((i) => (i.type === 'sandwich' ? sandwichAvailable(i) : available('drinks', i.drink)));
     saveCart();
+    renderBuilderOptions();
     renderAll();
     renderCartList();
-    if (cart.length !== before) toast('חלק מהפריטים אזלו והוסרו מהסל');
+    if (cart.length !== before) notify('😕', 'חלק מהפריטים אזלו', 'הם הוסרו מהסל');
   }
 
   // ---------- order status ----------
@@ -346,27 +579,22 @@
 
   const orderCache = {};
   let currentOrderId = null;
+  let shownOrderId = null;
+  let shownStatus = null;
   let stream = null;
 
   function showStatus(id, initial) {
     currentOrderId = id;
     if (initial) orderCache[id] = initial;
-    $('#statusView').classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
+    const view = $('#statusView');
+    if (view.classList.contains('hidden')) {
+      view.classList.remove('hidden', 'closing');
+      document.body.style.overflow = 'hidden';
+    }
     renderStatus();
     if (stream) stream.close();
     stream = new EventSource(`/api/orders/${encodeURIComponent(id)}/stream`);
-    stream.addEventListener('order', (ev) => {
-      const o = JSON.parse(ev.data);
-      const prev = orderCache[o.id];
-      orderCache[o.id] = o;
-      if (prev && prev.status !== o.status && o.status === 'ready') {
-        if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
-        confetti();
-        toast('ההזמנה שלך מוכנה! 🎉');
-      }
-      if (o.id === currentOrderId) renderStatus();
-    });
+    stream.addEventListener('order', (ev) => applyOrderUpdate(JSON.parse(ev.data)));
     stream.onerror = async () => {
       const res = await fetch(`/api/orders/${encodeURIComponent(id)}`).catch(() => null);
       if (res && res.status === 404) {
@@ -378,20 +606,85 @@
         renderMyOrdersBtn();
       }
     };
+    if (pushSupported && Notification.permission === 'granted' && !pushState[id]) subscribePush(id).then(updatePushCard);
   }
 
-  function hideStatus() {
+  function applyOrderUpdate(o) {
+    const prev = orderCache[o.id];
+    orderCache[o.id] = o;
+    if (prev && prev.status !== o.status) {
+      const st = STATUS[o.status];
+      if (o.status === 'ready') {
+        vibrate([200, 100, 200, 100, 400]);
+        confetti(120);
+        notify('🎉', 'ההזמנה שלך מוכנה!', 'אפשר לבוא לאסוף', 4500);
+      } else if (st) {
+        vibrate(60);
+        notify(st.emoji, st.label, '', 3000);
+      }
+    }
+    if (o.id === currentOrderId) renderStatus();
+    renderMyOrdersBtn();
+  }
+
+  async function refreshCurrentOrder() {
+    if (!currentOrderId) return;
+    const res = await fetch(`/api/orders/${encodeURIComponent(currentOrderId)}`).catch(() => null);
+    if (res && res.ok) applyOrderUpdate(await res.json());
+  }
+
+  async function hideStatus() {
     if (stream) { stream.close(); stream = null; }
     currentOrderId = null;
-    $('#statusView').classList.add('hidden');
+    shownOrderId = null;
+    const view = $('#statusView');
+    if (!reduceMotion && !view.classList.contains('hidden')) {
+      view.classList.add('closing');
+      await wait(260);
+    }
+    view.classList.add('hidden');
+    view.classList.remove('closing');
     document.body.style.overflow = '';
   }
 
   function itemLine(i) {
-    if (i.type === 'drink') return `${i.qty}× ${esc(i.drink.name)}`;
+    if (i.type === 'drink') return `<span class="q">${i.qty}×</span> 🥤 ${esc(i.drink.name)}`;
     const parts = [i.bread.name, i.filling && i.filling.name].filter(Boolean).join(' · ');
     const spreads = i.spreads.length ? ` <small>(${esc(i.spreads.map((s) => s.name).join(', '))})</small>` : '';
-    return `${i.qty}× 🥪 ${esc(parts)}${spreads}`;
+    return `<span class="q">${i.qty}×</span> 🥪 ${esc(parts)}${spreads}`;
+  }
+
+  function buildStatusSkeleton(o) {
+    $('#statusBody').innerHTML = `
+      <div class="st-hero">
+        <div class="st-emoji-wrap"><span class="st-glow"></span><span class="st-emoji" id="stEmoji"></span></div>
+        <div class="order-num">מספר הזמנה<b>#${o.number}</b></div>
+        <div class="st-text" id="stText"></div>
+        <div class="st-sub" id="stSub"></div>
+        <div class="live"><i></i>מתעדכן בזמן אמת</div>
+      </div>
+      <div class="progress" id="stProgress">
+        <div class="fill"></div>
+        ${STEPS.map(([label, icon], i) => `<div class="p-step" data-i="${i}"><span class="p-dot"><span class="p-icon">${icon}</span><span class="p-check">✓</span></span>${label}</div>`).join('')}
+      </div>
+      <div id="stEta" class="eta-ring">
+        <svg viewBox="0 0 54 54"><circle class="track" cx="27" cy="27" r="22" fill="none" stroke-width="6"/><circle class="val" cx="27" cy="27" r="22" fill="none" stroke-width="6"/></svg>
+        <div class="txt"><b></b><span></span></div>
+      </div>
+      <div id="stPush"></div>
+      <ul class="status-items">${o.items.map((i, idx) => `<li style="--i:${idx}">${itemLine(i)}</li>`).join('')}</ul>
+      <div class="status-total"><span>לתשלום באיסוף</span><span>${money(o.total)}</span></div>`;
+  }
+
+  async function swapEmoji(el, emoji, animate) {
+    if (!animate || reduceMotion) { el.textContent = emoji; return; }
+    await el.animate([{ transform: 'scale(1) rotate(0)', opacity: 1 }, { transform: 'scale(0) rotate(-90deg)', opacity: 0 }], { duration: 220, easing: 'ease-in' }).finished;
+    el.textContent = emoji;
+    el.animate([
+      { transform: 'scale(0) rotate(90deg)', opacity: 0 },
+      { transform: 'scale(1.35) rotate(-8deg)', opacity: 1, offset: 0.6 },
+      { transform: 'scale(1) rotate(0)', opacity: 1 },
+    ], { duration: 520, easing: 'cubic-bezier(.2,1.4,.4,1)' });
   }
 
   function renderStatus() {
@@ -400,44 +693,85 @@
     $('#statusTabs').innerHTML = mine.ids.length > 1
       ? mine.ids.map((id) => `<button type="button" class="chip" data-order="${esc(id)}" aria-pressed="${id === currentOrderId}">#${orderCache[id]?.number ?? '…'}</button>`).join('')
       : '';
-    if (!o) { $('#statusBody').innerHTML = '<p>טוען...</p>'; return; }
+    if (!o) { $('#statusBody').innerHTML = '<div class="st-loading"><span></span></div>'; shownOrderId = null; return; }
 
+    const fresh = shownOrderId !== o.id;
+    if (fresh) { buildStatusSkeleton(o); shownOrderId = o.id; shownStatus = null; }
+    const changed = shownStatus !== o.status;
     const st = STATUS[o.status] || STATUS.new;
-    let body = `
-      <div class="status-emoji ${o.status === 'ready' ? 'dance' : ''}">${st.emoji}</div>
-      <div class="order-num">מספר הזמנה<b>#${o.number}</b></div>
-      <div class="status-text">${st.label}</div>`;
 
-    if (o.status === 'cancelled') {
-      body += '<div class="cancelled-box">ההזמנה בוטלה. לשאלות אפשר לפנות לעגלה.</div>';
-    } else {
-      const pct = (st.step / (STEPS.length - 1)) * 100;
-      body += `<div class="progress"><div class="fill" style="width:calc((100% - 32px) * ${pct / 100})"></div>
-        ${STEPS.map(([label, icon], i) => `<div class="p-step ${i <= st.step ? 'done' : ''} ${i === st.step ? 'current' : ''}"><span class="p-dot">${i < st.step ? '✓' : icon}</span>${label}</div>`).join('')}
-      </div>`;
-      if (o.status !== 'picked_up') body += etaRing(o);
+    if (changed) {
+      const panel = $('.status-panel');
+      panel.dataset.mood = st.mood;
+      swapEmoji($('#stEmoji'), st.emoji, !fresh);
+      for (const [sel, text] of [['#stText', st.label], ['#stSub', st.sub]]) {
+        const el = $(sel);
+        el.textContent = text;
+        if (!fresh) replay(el, 'fade-up');
+      }
+      const cancelled = o.status === 'cancelled';
+      $('#stProgress').classList.toggle('hidden', cancelled);
+      $$('.p-step').forEach((stepEl, i) => {
+        const wasDone = stepEl.classList.contains('done');
+        stepEl.classList.toggle('done', i <= st.step);
+        stepEl.classList.toggle('past', i < st.step);
+        stepEl.classList.toggle('current', i === st.step);
+        if (!fresh && i <= st.step && !wasDone) replay($('.p-dot', stepEl), 'pop');
+      });
+      const fill = $('#stProgress .fill');
+      const pct = Math.max(0, st.step) / (STEPS.length - 1);
+      if (fresh && !reduceMotion) {
+        fill.style.width = '0';
+        requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = `calc((100% - 64px) * ${pct})`; }));
+      } else {
+        fill.style.width = `calc((100% - 64px) * ${pct})`;
+      }
+      if (!fresh && o.status === 'ready') replay(panel, 'celebrate');
+      shownStatus = o.status;
+      updatePushCard();
     }
-
-    body += `<ul class="status-items">${o.items.map((i) => `<li>${itemLine(i)}</li>`).join('')}</ul>
-      <div class="status-total"><span>לתשלום באיסוף</span><span>${money(o.total)}</span></div>`;
-    $('#statusBody').innerHTML = body;
+    updateEta(o);
   }
 
-  function etaRing(o) {
+  function updateEta(o) {
+    const box = $('#stEta');
+    if (!box) return;
+    const hide = ['picked_up', 'cancelled'].includes(o.status);
+    box.classList.toggle('hidden', hide);
+    if (hide) return;
     const now = Date.now();
     const span = Math.max(1, o.arriveAt - o.createdAt);
     const frac = Math.min(1, Math.max(0, (now - o.createdAt) / span));
     const left = Math.ceil((o.arriveAt - now) / 60000);
     const C = 2 * Math.PI * 22;
-    const title = left > 0 ? `מגיעים בעוד ${left} דק'` : 'הגיע הזמן לבוא לאסוף 🏃';
-    return `<div class="eta-ring">
-      <svg viewBox="0 0 54 54"><circle class="track" cx="27" cy="27" r="22" fill="none" stroke-width="6"/><circle class="val" cx="27" cy="27" r="22" fill="none" stroke-width="6" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - frac)}"/></svg>
-      <div class="txt"><b>${title}</b><span>שעת איסוף משוערת ${timeOf(o.arriveAt)}</span></div>
-    </div>`;
+    const ring = $('.val', box);
+    ring.style.strokeDasharray = C;
+    ring.style.strokeDashoffset = C * (1 - frac);
+    $('.txt b', box).textContent = o.status === 'ready'
+      ? (left > 0 ? `מחכה לך · עוד ${left} דק'` : 'מחכה לך בעגלה 🏃')
+      : (left > 0 ? `מגיעים בעוד ${left} דק'` : 'הגיע הזמן לבוא לאסוף 🏃');
+    $('.txt span', box).textContent = `שעת איסוף משוערת ${timeOf(o.arriveAt)}`;
+  }
+
+  function updatePushCard() {
+    const box = $('#stPush');
+    const o = orderCache[currentOrderId];
+    if (!box || !o) return;
+    const html = pushCardHtml(o.id, o.status);
+    if (box.innerHTML !== html) {
+      box.innerHTML = html;
+      if (html) replay(box.firstElementChild, 'fade-up');
+    }
   }
 
   function renderMyOrdersBtn() {
-    $('#myOrdersBtn').classList.toggle('hidden', myOrders().ids.length === 0);
+    const ids = myOrders().ids;
+    const btn = $('#myOrdersBtn');
+    const wasHidden = btn.classList.contains('hidden');
+    btn.classList.toggle('hidden', ids.length === 0);
+    const active = ids.some((id) => orderCache[id] && !['picked_up', 'cancelled'].includes(orderCache[id].status));
+    btn.classList.toggle('active', active);
+    if (wasHidden && ids.length) replay(btn, 'pop');
   }
 
   // ---------- init ----------
@@ -449,23 +783,37 @@
   }
 
   function renderAll() {
-    renderBuilder();
+    syncBuilder();
     renderFavorites();
     renderDrinks();
-    renderCartBar();
+    renderCartBar(false);
     renderMyOrdersBtn();
+  }
+
+  function setupReveal() {
+    const els = $$('.reveal');
+    if (reduceMotion || !('IntersectionObserver' in window)) { els.forEach((el) => el.classList.add('in')); return; }
+    const io = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+      }
+    }, { threshold: 0.08 });
+    els.forEach((el) => io.observe(el));
   }
 
   function bindEvents() {
     for (const id of ['#breads', '#spreads', '#fillings']) $(id).addEventListener('click', onOptionClick);
-    $('#qtyMinus').addEventListener('click', () => { builder.qty = Math.max(1, builder.qty - 1); renderBuilder(); });
-    $('#qtyPlus').addEventListener('click', () => { builder.qty = Math.min(20, builder.qty + 1); renderBuilder(); });
+    $('#qtyMinus').addEventListener('click', () => { builder.qty = Math.max(1, builder.qty - 1); syncBuilder(); replay($('#qty'), 'pop'); });
+    $('#qtyPlus').addEventListener('click', () => { builder.qty = Math.min(20, builder.qty + 1); syncBuilder(); replay($('#qty'), 'pop'); });
     $('#addSandwich').addEventListener('click', () => {
       if (!builder.bread) return;
+      const sources = $$('#tray .ing:not(.leaving) img');
       addSandwichToCart(builder, builder.qty);
-      toast(builder.qty > 1 ? `${builder.qty} סנדוויצ'ים נוספו לסל 🥪` : 'הסנדוויץ\' נוסף לסל 🥪');
+      vibrate(20);
+      notify('🥪', builder.qty > 1 ? `${builder.qty} סנדוויצ'ים נוספו לסל` : 'הסנדוויץ\' נוסף לסל');
+      afterAdd(sources);
       Object.assign(builder, { bread: null, spreads: [], filling: null, qty: 1 });
-      renderBuilder();
+      syncBuilder();
     });
     $('#saveFav').addEventListener('click', saveFavorite);
     $('#favorites').addEventListener('click', onFavoritesClick);
@@ -484,6 +832,7 @@
       if (!chip) return;
       eta = Number(chip.dataset.eta);
       $('#fEtaCustom').value = '';
+      vibrate(8);
       renderEta();
     });
     $('#fEtaCustom').addEventListener('input', (e) => {
@@ -501,9 +850,19 @@
       const chip = e.target.closest('[data-order]');
       if (chip) showStatus(chip.dataset.order);
     });
+    $('#statusBody').addEventListener('click', async (e) => {
+      if (!e.target.closest('[data-enable-push]')) return;
+      const p = await askPermission();
+      if (p === 'granted' && currentOrderId) {
+        await subscribePush(currentOrderId);
+        notify('🔔', 'ההתראות הופעלו', 'נעדכן אותך כשההזמנה מוכנה');
+      }
+      updatePushCard();
+    });
     $('#newOrderBtn').addEventListener('click', hideStatus);
 
-    setInterval(() => { if (currentOrderId) renderStatus(); }, 15000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshCurrentOrder(); });
+    setInterval(() => { const o = orderCache[currentOrderId]; if (o) updateEta(o); }, 15000);
   }
 
   async function init() {
@@ -513,30 +872,36 @@
       $('#fPhone').value = profile.phone || '';
     }
     bindEvents();
+    setupReveal();
     for (;;) {
       try {
         await loadMenu();
         break;
       } catch {
-        toast('אין חיבור לשרת, מנסים שוב...');
-        await new Promise((r) => setTimeout(r, 3000));
+        notify('📡', 'אין חיבור לשרת', 'מנסים שוב...');
+        await wait(3000);
       }
     }
     cart = cart.filter((i) => (i.type === 'sandwich' ? find('breads', i.bread) : find('drinks', i.drink)));
     saveCart();
+    renderBuilderOptions();
+    document.body.classList.add('ready');
     renderAll();
 
     const mine = myOrders();
-    store.set('sc_orders', mine);
+    const linked = new URLSearchParams(location.search).get('order');
+    if (linked && !mine.ids.includes(linked)) mine.ids.push(linked);
+    if (linked) history.replaceState(null, '', '/');
     await Promise.all(mine.ids.map(async (id) => {
       const res = await fetch(`/api/orders/${encodeURIComponent(id)}`).catch(() => null);
       if (res && res.ok) orderCache[id] = await res.json();
     }));
-    const active = mine.ids.filter((id) => orderCache[id] && !['picked_up', 'cancelled'].includes(orderCache[id].status));
     mine.ids = mine.ids.filter((id) => orderCache[id]);
     store.set('sc_orders', mine);
     renderMyOrdersBtn();
-    if (active.length) showStatus(active[active.length - 1]);
+    const active = mine.ids.filter((id) => !['picked_up', 'cancelled'].includes(orderCache[id].status));
+    if (linked && orderCache[linked]) showStatus(linked);
+    else if (active.length) showStatus(active[active.length - 1]);
   }
 
   init();

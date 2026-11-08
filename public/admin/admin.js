@@ -190,6 +190,7 @@
       <div class="ohead">
         <span class="onum">#${o.number}</span>
         <span class="oname">${esc(o.name)}</span>
+        ${o.push ? '<span class="push-on" title="הלקוח יקבל התראה לטלפון">🔔</span>' : ''}
         <a class="ophone" href="tel:${esc(o.phone)}">📞 ${esc(o.phone)}</a>
       </div>
       <div class="eta">
@@ -213,13 +214,53 @@
     </article>`;
   }
 
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setCount(el, value) {
+    if (el.textContent === String(value)) return;
+    el.textContent = value;
+    if (reduceMotion) return;
+    el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.45)' }, { transform: 'scale(1)' }], { duration: 400, easing: 'cubic-bezier(.2,1.4,.4,1)' });
+  }
+
   function renderBoard() {
+    const before = new Map();
+    for (const el of document.querySelectorAll('.ocard')) before.set(el.dataset.id, el.getBoundingClientRect());
+
     const active = [...orders.values()].filter((o) => ACTIVE.includes(o.status)).sort((a, b) => a.arriveAt - b.arriveAt);
     for (const st of ACTIVE) {
       const list = active.filter((o) => o.status === st);
-      $(`#cnt-${st}`).textContent = list.length;
+      setCount($(`#cnt-${st}`), list.length);
       $(`#list-${st}`).innerHTML = list.map(cardHtml).join('') || '<div class="empty">אין כרגע</div>';
     }
+
+    if (reduceMotion) return;
+    for (const el of document.querySelectorAll('.ocard')) {
+      const prev = before.get(el.dataset.id);
+      if (!prev) {
+        if (before.size || fresh.has(el.dataset.id)) {
+          el.animate([{ opacity: 0, transform: 'translateY(-18px) scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1)' });
+        }
+        continue;
+      }
+      const now = el.getBoundingClientRect();
+      const dx = prev.left - now.left;
+      const dy = prev.top - now.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      const moved = Math.abs(dx) > 40;
+      el.animate([
+        { transform: `translate(${dx}px, ${dy}px)${moved ? ' scale(.96) rotate(-1.5deg)' : ''}`, boxShadow: moved ? '0 20px 40px rgba(60,20,80,.3)' : 'none' },
+        { transform: 'none', boxShadow: '0 4px 14px rgba(60,20,80,.12)' },
+      ], { duration: moved ? 560 : 320, easing: 'cubic-bezier(.2,.9,.3,1)' });
+    }
+  }
+
+  async function animateOut(card) {
+    if (reduceMotion || !card) return;
+    await card.animate([
+      { opacity: 1, transform: 'none' },
+      { opacity: 0, transform: 'translateX(-40px) scale(.9)' },
+    ], { duration: 280, easing: 'ease-in', fill: 'forwards' }).finished;
   }
 
   function renderDone() {
@@ -306,8 +347,8 @@
     const all = [...orders.values()];
     const activeCount = all.filter((o) => ACTIVE.includes(o.status)).length;
     const newCount = all.filter((o) => o.status === 'new').length;
-    $('#activeCount').textContent = activeCount;
-    $('#doneCount').textContent = all.length - activeCount;
+    setCount($('#activeCount'), activeCount);
+    setCount($('#doneCount'), all.length - activeCount);
     document.title = newCount ? `(${newCount}) הזמנות חדשות` : 'ניהול הזמנות';
     if (tab === 'board') renderBoard();
     if (tab === 'done') renderDone();
@@ -371,9 +412,14 @@
       const tick = e.target.closest('[data-tick]');
       if (tick) return toggleItem(id, Number(tick.dataset.tick));
       const next = e.target.closest('[data-next]');
-      if (next) return setStatus(id, next.dataset.next);
+      if (next) {
+        if (next.dataset.next === 'picked_up') return animateOut(card).then(() => setStatus(id, 'picked_up'));
+        return setStatus(id, next.dataset.next);
+      }
       if (e.target.closest('[data-back]')) return setStatus(id, PREV[o.status]);
-      if (e.target.closest('[data-cancel]') && confirm(`לבטל את הזמנה #${o.number} של ${o.name}?`)) setStatus(id, 'cancelled');
+      if (e.target.closest('[data-cancel]') && confirm(`לבטל את הזמנה #${o.number} של ${o.name}?`)) {
+        animateOut(card).then(() => setStatus(id, 'cancelled'));
+      }
     });
 
     $('#doneList').addEventListener('click', (e) => {

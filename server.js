@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const webpush = require('web-push');
 const defaultMenu = require('./defaultMenu');
 
 const PORT = process.env.PORT || 3000;
@@ -86,6 +87,62 @@ function ensureToday() {
 }
 setInterval(ensureToday, 60 * 1000);
 
+// ---------- web push ----------
+
+function loadVapidKeys() {
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+  }
+  // Keys must stay stable across restarts, otherwise every existing subscription breaks.
+  const file = path.join(DATA_DIR, 'vapid.json');
+  const saved = readJson(file, null);
+  if (saved && saved.publicKey && saved.privateKey) return saved;
+  const keys = webpush.generateVAPIDKeys();
+  writeJson(file, keys);
+  return keys;
+}
+
+const vapid = loadVapidKeys();
+webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:orders@sandwich-cart.app', vapid.publicKey, vapid.privateKey);
+
+const PUSH_MESSAGES = {
+  preparing: { title: '👨‍🍳 מתחילים להכין!', body: (o) => `${o.name}, ההזמנה שלך (#${o.number}) בהכנה עכשיו` },
+  ready: { title: '🎉 ההזמנה מוכנה!', body: (o) => `${o.name}, הזמנה #${o.number} מחכה לך בעגלה. אפשר לבוא לאסוף` },
+  cancelled: { title: '😕 ההזמנה בוטלה', body: (o) => `הזמנה #${o.number} בוטלה. לשאלות אפשר לפנות לעגלה` },
+};
+
+function isValidSubscription(sub) {
+  return Boolean(
+    sub && typeof sub.endpoint === 'string' && /^https:\/\//.test(sub.endpoint) && sub.endpoint.length < 1000 &&
+    sub.keys && typeof sub.keys.p256dh === 'string' && typeof sub.keys.auth === 'string',
+  );
+}
+
+async function pushStatus(order) {
+  const msg = PUSH_MESSAGES[order.status];
+  if (!msg || !order.pushSubs || !order.pushSubs.length) return;
+  order.pushed = order.pushed || {};
+  if (order.pushed[order.status]) return;
+  order.pushed[order.status] = true;
+  const payload = JSON.stringify({
+    title: msg.title,
+    body: msg.body(order),
+    tag: `order-${order.id}`,
+    url: `/?order=${order.id}`,
+    status: order.status,
+  });
+  const dead = new Set();
+  await Promise.all(order.pushSubs.map((sub) =>
+    webpush.sendNotification(sub, payload, { TTL: 60 * 60, urgency: 'high' }).catch((err) => {
+      if (err.statusCode === 404 || err.statusCode === 410) dead.add(sub.endpoint);
+      else console.warn('push failed', err.statusCode || err.message);
+    })));
+  if (dead.size) {
+    order.pushSubs = order.pushSubs.filter((s) => !dead.has(s.endpoint));
+    saveState();
+  }
+}
+
 // ---------- realtime (SSE) ----------
 
 const adminClients = new Set();
@@ -132,6 +189,11 @@ function publicOrder(o) {
     arriveAt: o.arriveAt,
     etaMinutes: o.etaMinutes,
   };
+}
+
+function adminOrder(o) {
+  const { pushSubs, pushed, ...rest } = o;
+  return { ...rest, push: Boolean(pushSubs && pushSubs.length) };
 }
 
 function rateLimiter(max, windowMs) {
@@ -277,8 +339,25 @@ app.post('/api/orders', rateLimiter(30, 10 * 60 * 1000), (req, res) => {
   };
   state.orders.push(order);
   saveState();
-  broadcastAdmin('order', order);
+  broadcastAdmin('order', adminOrder(order));
   res.status(201).json(publicOrder(order));
+});
+
+app.get('/api/push/key', (req, res) => {
+  res.json({ key: vapid.publicKey });
+});
+
+app.post('/api/orders/:id/push', rateLimiter(60, 10 * 60 * 1000), (req, res) => {
+  const order = state.orders.find((o) => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'ההזמנה לא נמצאה' });
+  const sub = req.body && req.body.subscription;
+  if (!isValidSubscription(sub)) return res.status(400).json({ error: 'מנוי התראות לא תקין' });
+  order.pushSubs = (order.pushSubs || []).filter((s) => s.endpoint !== sub.endpoint);
+  order.pushSubs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
+  order.pushSubs = order.pushSubs.slice(-5);
+  saveState();
+  broadcastAdmin('order', adminOrder(order));
+  res.json({ ok: true });
 });
 
 app.get('/api/orders/:id', (req, res) => {
@@ -313,7 +392,7 @@ app.post('/api/admin/login', rateLimiter(10, 10 * 60 * 1000), (req, res) => {
 
 app.get('/api/admin/orders', requireAdmin, (req, res) => {
   ensureToday();
-  res.json({ day: state.day, orders: state.orders });
+  res.json({ day: state.day, orders: state.orders.map(adminOrder) });
 });
 
 app.get('/api/admin/stream', requireAdmin, (req, res) => {
@@ -326,7 +405,7 @@ app.get('/api/admin/stream', requireAdmin, (req, res) => {
 function updateOrder(order) {
   order.updatedAt = Date.now();
   saveState();
-  broadcastAdmin('order', order);
+  broadcastAdmin('order', adminOrder(order));
   notifyOrder(order);
 }
 
@@ -335,9 +414,11 @@ app.patch('/api/admin/orders/:id', requireAdmin, (req, res) => {
   if (!order) return res.status(404).json({ error: 'ההזמנה לא נמצאה' });
   const { status } = req.body || {};
   if (!STATUSES.includes(status)) return res.status(400).json({ error: 'סטטוס לא תקין' });
+  const changed = order.status !== status;
   order.status = status;
   updateOrder(order);
-  res.json(order);
+  if (changed) pushStatus(order).catch((err) => console.warn('push error', err.message));
+  res.json(adminOrder(order));
 });
 
 app.patch('/api/admin/orders/:id/items/:index', requireAdmin, (req, res) => {
@@ -346,7 +427,7 @@ app.patch('/api/admin/orders/:id/items/:index', requireAdmin, (req, res) => {
   if (!item) return res.status(404).json({ error: 'הפריט לא נמצא' });
   item.done = Boolean(req.body && req.body.done);
   updateOrder(order);
-  res.json(order);
+  res.json(adminOrder(order));
 });
 
 app.put('/api/admin/menu', requireAdmin, (req, res) => {

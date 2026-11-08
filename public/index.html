@@ -3,9 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#ff7a59" />
+  <meta name="theme-color" content="#ff6b4a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="סנדוויצ'ים" />
   <title>הזמנת סנדוויצ'ים</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥪</text></svg>" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet" />
@@ -17,43 +23,47 @@
   </div>
 
   <header class="top glass">
-    <div class="brand"><span class="logo">🥪</span><h1 id="shopName">עגלת הסנדוויצ'ים</h1></div>
-    <button id="myOrdersBtn" class="pill hidden" type="button">📦 ההזמנות שלי</button>
+    <div class="brand"><img class="logo" src="/icons/icon-192.png" alt="" /><h1 id="shopName">עגלת הסנדוויצ'ים</h1></div>
+    <button id="myOrdersBtn" class="pill hidden" type="button"><span class="live-dot"></span> ההזמנה שלי</button>
   </header>
 
   <main id="main">
     <section class="hero">
-      <h2>מה בא לך היום?</h2>
+      <div class="hero-float" aria-hidden="true"><span>🥖</span><span>🧀</span><span>🍅</span><span>🥑</span><span>🥚</span></div>
+      <h2>מה בא לך <span class="grad">היום?</span></h2>
       <p>בונים סנדוויץ', מוסיפים שתייה, ואוספים בלי לחכות בתור</p>
     </section>
 
-    <section id="favoritesSection" class="hidden">
+    <section id="favoritesSection" class="reveal hidden">
       <h3 class="section-title">⭐ הקבועים שלי</h3>
       <div id="favorites" class="h-scroll"></div>
     </section>
 
-    <section class="glass card builder">
+    <section class="glass card builder reveal">
       <div class="builder-head">
         <h3>בונים סנדוויץ'</h3>
         <span class="price-tag" id="sandwichPrice"></span>
       </div>
 
       <div class="step">
-        <div class="step-title"><span class="step-num">1</span> בוחרים לחם</div>
+        <div class="step-title"><span class="step-num" data-step="1"><i>1</i></span> בוחרים לחם</div>
         <div id="breads" class="options cols-3"></div>
       </div>
 
-      <div class="step">
-        <div class="step-title"><span class="step-num">2</span> ממרחים <small>אפשר כמה</small></div>
+      <div class="step" id="step2">
+        <div class="step-title"><span class="step-num" data-step="2"><i>2</i></span> ממרחים <small>אפשר כמה</small></div>
         <div id="spreads" class="options cols-4"></div>
       </div>
 
-      <div class="step">
-        <div class="step-title"><span class="step-num">3</span> מילוי <small>לא חובה · לחיצה נוספת מבטלת</small></div>
+      <div class="step" id="step3">
+        <div class="step-title"><span class="step-num" data-step="3"><i>3</i></span> מילוי <small>לא חובה · לחיצה נוספת מבטלת</small></div>
         <div id="fillings" class="options cols-4"></div>
       </div>
 
-      <div id="builderSummary" class="builder-summary">בחרו לחם כדי להתחיל 👆</div>
+      <div class="tray-wrap">
+        <div id="trayEmpty" class="tray-empty">👆 בחרו לחם ונתחיל לבנות</div>
+        <div id="tray" class="tray"></div>
+      </div>
 
       <div class="builder-actions">
         <div class="stepper" aria-label="כמות">
@@ -61,22 +71,24 @@
           <span id="qty">1</span>
           <button type="button" id="qtyPlus" aria-label="עוד">+</button>
         </div>
-        <button type="button" id="addSandwich" class="btn primary" disabled>הוספה לסל</button>
+        <button type="button" id="addSandwich" class="btn primary shine" disabled>הוספה לסל</button>
       </div>
       <button type="button" id="saveFav" class="btn ghost full" disabled>⭐ שמירה כסנדוויץ' קבוע</button>
     </section>
 
-    <section>
+    <section class="reveal">
       <h3 class="section-title">🥤 שתייה ואייס קפה</h3>
       <div id="drinks" class="drinks"></div>
     </section>
 
-    <p class="footer-note">התשלום מתבצע בעת האיסוף 💛</p>
+    <p class="footer-note reveal">התשלום מתבצע בעת האיסוף 💛</p>
   </main>
 
   <div id="cartBar" class="cart-bar hidden">
     <button type="button" id="openCart" class="btn primary big">
-      <span>🛒 לסל ולהזמנה</span><span id="cartBarInfo"></span>
+      <span class="cart-ico">🛒<b id="cartCount">0</b></span>
+      <span>לסל ולהזמנה</span>
+      <span id="cartBarTotal" class="cart-total"></span>
     </button>
   </div>
 
@@ -114,10 +126,13 @@
 
         <div id="formError" class="form-error hidden"></div>
 
-        <button type="submit" id="submitOrder" class="btn primary big">
-          <span>שליחת הזמנה</span><span id="submitTotal"></span>
+        <button type="submit" id="submitOrder" class="btn primary big submit">
+          <span class="btn-label">שליחת הזמנה</span>
+          <span id="submitTotal"></span>
+          <span class="btn-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <svg class="btn-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23" /><path d="M15 27 l8 8 l15 -17" /></svg>
         </button>
-        <p class="pay-note">התשלום בעת האיסוף</p>
+        <p class="pay-note">התשלום בעת האיסוף · נשלח לך התראה כשההזמנה מוכנה 🔔</p>
       </form>
     </div>
   </div>
@@ -130,7 +145,10 @@
     </div>
   </div>
 
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <span class="t-icon"></span>
+    <span class="t-text"><b class="t-title"></b><span class="t-sub"></span></span>
+  </div>
 
   <script src="/app.js"></script>
 </body>
