@@ -1,4 +1,5 @@
 module.exports = {
+  version: 2,
   prices: { sandwich: 10 },
   breads: [
     { id: 'pita', name: 'פיתה', img: '/img/pita.webp', available: true },
@@ -10,6 +11,12 @@ module.exports = {
     { id: 'cream-cheese', name: 'גבינת שמנת', img: '/img/cream-cheese.webp', available: true },
     { id: 'spicy', name: 'חריף', img: '/img/spicy.webp', available: true },
     { id: 'mayo', name: 'מיונז', img: '/img/mayo.webp', available: true },
+  ],
+  vegetables: [
+    { id: 'tomato', name: 'עגבנייה', img: '/img/tomato.webp', available: true },
+    { id: 'cucumber', name: 'מלפפון', img: '/img/cucumber.webp', available: true },
+    { id: 'onion', name: 'בצל', img: '/img/onion.webp', available: true },
+    { id: 'eggplant', name: 'חציל', img: '/img/eggplant.webp', available: true },
   ],
   fillings: [
     { id: 'tuna', name: 'טונה', img: '/img/tuna.webp', available: true },

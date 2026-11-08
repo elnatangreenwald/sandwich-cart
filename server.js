@@ -38,13 +38,22 @@ function writeJson(file, data) {
 const menuFile = path.join(DATA_DIR, 'menu.json');
 const ordersFile = (day) => path.join(DATA_DIR, `orders-${day}.json`);
 
+const CATEGORIES = ['breads', 'spreads', 'vegetables', 'fillings', 'drinks'];
+const uploadsDir = path.join(DATA_DIR, 'uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+
 function loadMenu() {
   const saved = readJson(menuFile, null);
   const menu = structuredClone(defaultMenu);
   if (!saved) return menu;
-  // Overlay saved availability/prices onto the default catalog so new products still appear.
+  if (saved.version === 2) {
+    for (const cat of CATEGORIES) if (!Array.isArray(saved[cat])) saved[cat] = menu[cat];
+    if (!saved.prices) saved.prices = menu.prices;
+    return saved;
+  }
+  // Legacy file only stored availability/prices: overlay them onto the default catalog.
   if (saved.prices && Number.isFinite(saved.prices.sandwich)) menu.prices.sandwich = saved.prices.sandwich;
-  for (const cat of ['breads', 'spreads', 'fillings', 'drinks']) {
+  for (const cat of CATEGORIES) {
     for (const item of menu[cat]) {
       const s = (saved[cat] || []).find((x) => x.id === item.id);
       if (!s) continue;
@@ -255,6 +264,12 @@ function buildItems(rawItems) {
         if (!s) throw new Error('אחד הממרחים שנבחרו לא זמין כרגע');
         return { id: s.id, name: s.name };
       });
+      const vegIds = Array.isArray(raw.vegetables) ? [...new Set(raw.vegetables)] : [];
+      const vegetables = vegIds.map((id) => {
+        const v = findAvailable('vegetables', id);
+        if (!v) throw new Error('אחד הירקות שנבחרו לא זמין כרגע');
+        return { id: v.id, name: v.name };
+      });
       let filling = null;
       if (raw.filling) {
         const f = findAvailable('fillings', raw.filling);
@@ -266,6 +281,7 @@ function buildItems(rawItems) {
         type: 'sandwich',
         bread: { id: bread.id, name: bread.name },
         spreads,
+        vegetables,
         filling,
         qty,
         unitPrice,
@@ -297,6 +313,7 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '32kb' }));
 app.use('/img', express.static(path.join(__dirname, 'public', 'img'), { maxAge: '7d' }));
+app.use('/uploads', express.static(uploadsDir, { maxAge: '30d', immutable: true }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
 
 app.get('/api/menu', (req, res) => {
@@ -437,7 +454,7 @@ app.put('/api/admin/menu', requireAdmin, (req, res) => {
   if (Number.isFinite(sandwichPrice) && sandwichPrice >= 0 && sandwichPrice <= 1000) {
     next.prices.sandwich = sandwichPrice;
   }
-  for (const cat of ['breads', 'spreads', 'fillings', 'drinks']) {
+  for (const cat of CATEGORIES) {
     for (const incoming of Array.isArray(body[cat]) ? body[cat] : []) {
       const item = next[cat].find((x) => x.id === incoming.id);
       if (!item) continue;
@@ -446,11 +463,113 @@ app.put('/api/admin/menu', requireAdmin, (req, res) => {
       if (cat === 'drinks' && Number.isFinite(price) && price >= 0 && price <= 1000) item.price = price;
     }
   }
+  saveMenu(next);
+  res.json(menu);
+});
+
+function saveMenu(next) {
+  next.version = 2;
   menu = next;
   writeJson(menuFile, menu);
   broadcastAdmin('menu', menu);
+}
+
+function menuItem(req, res) {
+  const { cat, id } = req.params;
+  if (!CATEGORIES.includes(cat)) { res.status(404).json({ error: 'קטגוריה לא קיימת' }); return null; }
+  const item = menu[cat].find((x) => x.id === id);
+  if (!item) { res.status(404).json({ error: 'הפריט לא נמצא' }); return null; }
+  return item;
+}
+
+function removeUpload(img) {
+  if (typeof img === 'string' && img.startsWith('/uploads/')) {
+    fs.rm(path.join(uploadsDir, path.basename(img)), { force: true }, () => {});
+  }
+}
+
+function parsePrice(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 && n <= 1000 ? Math.round(n * 2) / 2 : null;
+}
+
+app.post('/api/admin/menu/:cat', requireAdmin, (req, res) => {
+  const { cat } = req.params;
+  if (!CATEGORIES.includes(cat)) return res.status(404).json({ error: 'קטגוריה לא קיימת' });
+  const name = cleanText(req.body && req.body.name, 30);
+  if (!name) return res.status(400).json({ error: 'נא לתת שם לפריט' });
+  if (menu[cat].length >= 40) return res.status(400).json({ error: 'יותר מדי פריטים בקטגוריה' });
+  const item = { id: `${cat.slice(0, 3)}-${crypto.randomBytes(4).toString('hex')}`, name, img: '/img/placeholder.svg', available: true };
+  if (cat === 'drinks') {
+    const price = parsePrice(req.body.price);
+    if (price === null) return res.status(400).json({ error: 'נא להזין מחיר' });
+    item.price = price;
+  }
+  const next = structuredClone(menu);
+  next[cat].push(item);
+  saveMenu(next);
+  res.status(201).json({ item, menu });
+});
+
+app.patch('/api/admin/menu/:cat/:id', requireAdmin, (req, res) => {
+  if (!menuItem(req, res)) return;
+  const { cat, id } = req.params;
+  const body = req.body || {};
+  const next = structuredClone(menu);
+  const item = next[cat].find((x) => x.id === id);
+  if ('name' in body) {
+    const name = cleanText(body.name, 30);
+    if (!name) return res.status(400).json({ error: 'השם לא יכול להיות ריק' });
+    item.name = name;
+  }
+  if (typeof body.available === 'boolean') item.available = body.available;
+  if (cat === 'drinks' && 'price' in body) {
+    const price = parsePrice(body.price);
+    if (price === null) return res.status(400).json({ error: 'מחיר לא תקין' });
+    item.price = price;
+  }
+  saveMenu(next);
   res.json(menu);
 });
+
+app.delete('/api/admin/menu/:cat/:id', requireAdmin, (req, res) => {
+  const item = menuItem(req, res);
+  if (!item) return;
+  const { cat, id } = req.params;
+  if (cat === 'breads' && menu.breads.length === 1) return res.status(400).json({ error: 'חייב להישאר לפחות סוג לחם אחד' });
+  const next = structuredClone(menu);
+  next[cat] = next[cat].filter((x) => x.id !== id);
+  saveMenu(next);
+  removeUpload(item.img);
+  res.json(menu);
+});
+
+const IMAGE_TYPES = [
+  { ext: 'jpg', test: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { ext: 'png', test: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { ext: 'webp', test: (b) => b.subarray(0, 4).toString('ascii') === 'RIFF' && b.subarray(8, 12).toString('ascii') === 'WEBP' },
+];
+
+app.post(
+  '/api/admin/menu/:cat/:id/image',
+  requireAdmin,
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }),
+  (req, res) => {
+    const item = menuItem(req, res);
+    if (!item) return;
+    const buf = req.body;
+    const type = Buffer.isBuffer(buf) && buf.length > 12 && IMAGE_TYPES.find((t) => t.test(buf));
+    if (!type) return res.status(400).json({ error: 'הקובץ אינו תמונה נתמכת (JPG / PNG / WEBP)' });
+    const file = `${item.id}-${Date.now().toString(36)}.${type.ext}`;
+    fs.writeFileSync(path.join(uploadsDir, file), buf);
+    const { cat, id } = req.params;
+    const next = structuredClone(menu);
+    next[cat].find((x) => x.id === id).img = `/uploads/${file}`;
+    saveMenu(next);
+    removeUpload(item.img);
+    res.json(menu);
+  },
+);
 
 app.listen(PORT, () => {
   console.log(`Sandwich cart running on http://localhost:${PORT}`);

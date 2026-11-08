@@ -158,7 +158,8 @@
     if (i.type === 'drink') return `${esc(i.drink.name)}`;
     const head = [i.bread.name, i.filling ? i.filling.name : 'בלי מילוי'].map(esc).join(' · ');
     const spreads = i.spreads.length ? i.spreads.map((s) => esc(s.name)).join(', ') : 'בלי ממרחים';
-    return `🥪 <b>${head}</b><small>${spreads}</small>`;
+    const veg = (i.vegetables || []).length ? `🥗 ${i.vegetables.map((v) => esc(v.name)).join(', ')}` : 'בלי ירקות';
+    return `🥪 <b>${head}</b><small>${spreads}</small><small>${veg}</small>`;
   }
 
   function etaInfo(o) {
@@ -274,32 +275,88 @@
   }
 
   // ---------- render: menu ----------
+  const MENU_CATS = [
+    ['breads', '🍞 לחמים'],
+    ['spreads', '🥫 ממרחים'],
+    ['vegetables', '🥗 ירקות'],
+    ['fillings', '🍳 מילויים'],
+    ['drinks', '🥤 שתייה'],
+  ];
+
   function renderMenu() {
     if (!menu) return;
     const m = menu.menu;
-    const group = (cat, title, withPrice) => `<div class="mgroup glass"><h3>${title}</h3><div class="mitems">
-      ${m[cat].map((x) => `<div class="mitem ${x.available ? '' : 'off'}">
-        <img src="${esc(x.img)}" alt="" />
-        <span class="mname">${esc(x.name)}</span>
-        ${withPrice ? `<input class="price-input" type="number" min="0" step="0.5" value="${x.price}" data-price-cat="${cat}" data-id="${esc(x.id)}" aria-label="מחיר" />` : ''}
-        <label class="switch" title="זמין"><input type="checkbox" ${x.available ? 'checked' : ''} data-avail-cat="${cat}" data-id="${esc(x.id)}" /><span></span></label>
+    const group = (cat, title) => {
+      const withPrice = cat === 'drinks';
+      return `<div class="mgroup glass" data-cat="${cat}"><h3>${title} <span class="mcount">${(m[cat] || []).length}</span></h3><div class="mitems">
+      ${(m[cat] || []).map((x) => `<div class="mitem ${x.available ? '' : 'off'}" data-id="${esc(x.id)}">
+        <button type="button" class="mimg" data-upload title="החלפת תמונה"><img src="${esc(x.img)}" alt="" /><span class="cam">📷</span></button>
+        <input class="mname-input" value="${esc(x.name)}" maxlength="30" data-field="name" aria-label="שם" />
+        ${withPrice ? `<input class="price-input" type="number" min="0" step="0.5" value="${x.price}" data-field="price" aria-label="מחיר" />` : ''}
+        <label class="switch" title="זמין / אזל"><input type="checkbox" ${x.available ? 'checked' : ''} data-field="available" /><span></span></label>
+        <button type="button" class="mdel" data-delete title="מחיקה">🗑</button>
       </div>`).join('')}
+      <form class="madd" data-add="${cat}">
+        <input name="name" placeholder="+ פריט חדש" maxlength="30" required />
+        ${withPrice ? '<input name="price" class="price-input" type="number" min="0" step="0.5" placeholder="₪" required />' : ''}
+        <button type="submit" class="act next">הוספה</button>
+      </form>
     </div></div>`;
+    };
     $('#menuEditor').innerHTML = `
       <div class="mgroup glass"><h3>💰 מחיר סנדוויץ' <input class="price-input" type="number" min="0" step="0.5" value="${m.prices.sandwich}" id="sandwichPrice" aria-label="מחיר סנדוויץ'" /> ₪</h3>
-        <div style="color:var(--ink-soft)">כולל לחם, ממרחים ומילוי. כיבוי מתג = הפריט מסומן "אזל" אצל הלקוחות.</div></div>
-      ${group('breads', '🍞 לחמים')}
-      ${group('spreads', '🥫 ממרחים')}
-      ${group('fillings', '🍳 מילויים')}
-      ${group('drinks', '🥤 שתייה', true)}`;
+        <div class="mhelp">כולל לחם, ממרחים, ירקות ומילוי. לחיצה על תמונה מחליפה אותה · עריכת שם נשמרת ביציאה מהשדה · מתג כבוי = "אזל" אצל הלקוחות.</div></div>
+      ${MENU_CATS.map(([cat, title]) => group(cat, title)).join('')}`;
   }
 
-  async function saveMenu(patch) {
+  async function menuCall(path, opts, okMsg = 'נשמר ✓') {
     try {
-      menu.menu = await api('/api/admin/menu', { method: 'PUT', body: JSON.stringify(patch) });
-      toast('נשמר ✓');
+      const data = await api(path, opts);
+      menu.menu = data.menu || data;
+      toast(okMsg);
+      return data;
     } catch (e) {
       toast(e.message);
+      return null;
+    } finally {
+      renderMenu();
+    }
+  }
+
+  async function squareImage(file) {
+    const bmp = await createImageBitmap(file);
+    const size = 600;
+    const side = Math.min(bmp.width, bmp.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    canvas.getContext('2d').drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+    const toBlob = (type, q) => new Promise((r) => canvas.toBlob(r, type, q));
+    const webp = await toBlob('image/webp', 0.82);
+    return webp && webp.type === 'image/webp' ? webp : toBlob('image/jpeg', 0.85);
+  }
+
+  let uploadTarget = null;
+
+  async function uploadImage(file) {
+    if (!file || !uploadTarget) return;
+    const { cat, id } = uploadTarget;
+    uploadTarget = null;
+    const tile = document.querySelector(`.mgroup[data-cat="${cat}"] .mitem[data-id="${CSS.escape(id)}"]`);
+    if (tile) tile.classList.add('uploading');
+    try {
+      const blob = await squareImage(file);
+      const res = await fetch(`/api/admin/menu/${cat}/${encodeURIComponent(id)}/image`, {
+        method: 'POST',
+        headers: { 'Content-Type': blob.type, Authorization: `Bearer ${token}` },
+        body: blob,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'העלאה נכשלה');
+      menu.menu = data;
+      toast('התמונה עודכנה 📷');
+    } catch (e) {
+      toast(e.message === 'unauthorized' ? 'לא מורשה' : e.message || 'העלאה נכשלה');
     }
     renderMenu();
   }
@@ -310,7 +367,7 @@
     const valid = all.filter((o) => o.status !== 'cancelled');
     const collected = all.filter((o) => o.status === 'picked_up').reduce((s, o) => s + o.total, 0);
     const expected = valid.reduce((s, o) => s + o.total, 0);
-    const counts = { breads: {}, spreads: {}, fillings: {}, drinks: {} };
+    const counts = { breads: {}, spreads: {}, vegetables: {}, fillings: {}, drinks: {} };
     let sandwiches = 0;
     for (const o of valid) {
       for (const i of o.items) {
@@ -320,6 +377,7 @@
         const f = i.filling ? i.filling.name : 'בלי מילוי';
         counts.fillings[f] = (counts.fillings[f] || 0) + i.qty;
         for (const s of i.spreads) counts.spreads[s.name] = (counts.spreads[s.name] || 0) + i.qty;
+        for (const v of i.vegetables || []) counts.vegetables[v.name] = (counts.vegetables[v.name] || 0) + i.qty;
       }
     }
     const bd = (title, obj) => {
@@ -339,6 +397,7 @@
         ${bd('🍞 לחמים', counts.breads)}
         ${bd('🍳 מילויים', counts.fillings)}
         ${bd('🥫 ממרחים', counts.spreads)}
+        ${bd('🥗 ירקות', counts.vegetables)}
         ${bd('🥤 שתייה', counts.drinks)}
       </div>`;
   }
@@ -427,11 +486,60 @@
       if (row) setStatus(row.dataset.id, 'ready');
     });
 
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.hidden = true;
+    document.body.appendChild(fileInput);
+    fileInput.addEventListener('change', () => { uploadImage(fileInput.files[0]); fileInput.value = ''; });
+
+    const itemRef = (el) => {
+      const tile = el.closest('.mitem');
+      return tile && { cat: tile.closest('.mgroup').dataset.cat, id: tile.dataset.id, tile };
+    };
+
     $('#menuEditor').addEventListener('change', (e) => {
       const t = e.target;
-      if (t.id === 'sandwichPrice') return saveMenu({ prices: { sandwich: Number(t.value) } });
-      if (t.dataset.availCat) return saveMenu({ [t.dataset.availCat]: [{ id: t.dataset.id, available: t.checked }] });
-      if (t.dataset.priceCat) return saveMenu({ [t.dataset.priceCat]: [{ id: t.dataset.id, price: Number(t.value) }] });
+      if (t.id === 'sandwichPrice') return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ prices: { sandwich: Number(t.value) } }) });
+      const ref = t.dataset.field && itemRef(t);
+      if (!ref) return;
+      const value = t.dataset.field === 'available' ? t.checked : t.dataset.field === 'price' ? Number(t.value) : t.value;
+      menuCall(`/api/admin/menu/${ref.cat}/${encodeURIComponent(ref.id)}`, { method: 'PATCH', body: JSON.stringify({ [t.dataset.field]: value }) });
+    });
+
+    $('#menuEditor').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches('.mname-input')) e.target.blur();
+    });
+
+    $('#menuEditor').addEventListener('click', async (e) => {
+      const upload = e.target.closest('[data-upload]');
+      if (upload) {
+        const ref = itemRef(upload);
+        uploadTarget = { cat: ref.cat, id: ref.id };
+        fileInput.click();
+        return;
+      }
+      const del = e.target.closest('[data-delete]');
+      if (del) {
+        const ref = itemRef(del);
+        const name = ref.tile.querySelector('.mname-input').value;
+        if (!confirm(`למחוק את "${name}" מהתפריט?`)) return;
+        if (!reduceMotion) await ref.tile.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.85)' }], { duration: 220, fill: 'forwards' }).finished;
+        menuCall(`/api/admin/menu/${ref.cat}/${encodeURIComponent(ref.id)}`, { method: 'DELETE' }, 'נמחק 🗑');
+      }
+    });
+
+    $('#menuEditor').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target.closest('[data-add]');
+      if (!form) return;
+      const body = { name: form.name.value };
+      if (form.price) body.price = Number(form.price.value);
+      const data = await menuCall(`/api/admin/menu/${form.dataset.add}`, { method: 'POST', body: JSON.stringify(body) }, 'נוסף! לחצו על התמונה כדי להוסיף תמונה 📷');
+      if (data && data.item && !reduceMotion) {
+        const tile = document.querySelector(`.mitem[data-id="${CSS.escape(data.item.id)}"]`);
+        if (tile) tile.animate([{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 350, easing: 'cubic-bezier(.2,1.4,.4,1)' });
+      }
     });
 
     document.addEventListener('visibilitychange', () => {

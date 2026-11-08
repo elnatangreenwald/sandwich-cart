@@ -27,27 +27,33 @@
   const STEPS = [['התקבלה', '📨'], ['בהכנה', '🔥'], ['מוכן', '🎉'], ['נאסף', '😋']];
 
   let MENU = null;
-  const builder = { bread: null, spreads: [], filling: null, qty: 1 };
-  let cart = store.get('sc_cart', []);
-  let favorites = store.get('sc_favorites', []);
+  const builder = { bread: null, spreads: [], vegetables: [], filling: null, qty: 1 };
+  const withVeg = (i) => (i.type === 'drink' ? i : { ...i, vegetables: i.vegetables || [] });
+  let cart = store.get('sc_cart', []).map(withVeg);
+  let favorites = store.get('sc_favorites', []).map(withVeg);
   let eta = null;
 
   // ---------- menu helpers ----------
   const find = (cat, id) => MENU.menu[cat].find((x) => x.id === id);
   const available = (cat, id) => { const x = find(cat, id); return Boolean(x && x.available); };
-  const sandwichKey = (s) => `s:${s.bread}|${[...s.spreads].sort().join(',')}|${s.filling || ''}`;
+  const sandwichKey = (s) => `s:${s.bread}|${[...s.spreads].sort().join(',')}|${[...(s.vegetables || [])].sort().join(',')}|${s.filling || ''}`;
 
   function sandwichAvailable(s) {
-    return available('breads', s.bread) && s.spreads.every((id) => available('spreads', id)) && (!s.filling || available('fillings', s.filling));
+    return available('breads', s.bread)
+      && s.spreads.every((id) => available('spreads', id))
+      && (s.vegetables || []).every((id) => available('vegetables', id))
+      && (!s.filling || available('fillings', s.filling));
   }
 
   function sandwichText(s) {
     const bread = find('breads', s.bread)?.name || '';
     const filling = s.filling ? find('fillings', s.filling)?.name : '';
     const spreads = s.spreads.map((id) => find('spreads', id)?.name).filter(Boolean);
+    const vegetables = (s.vegetables || []).map((id) => find('vegetables', id)?.name).filter(Boolean);
+    const sub = [spreads.length && `ממרחים: ${spreads.join(', ')}`, vegetables.length && `ירקות: ${vegetables.join(', ')}`].filter(Boolean);
     return {
       title: [bread, filling].filter(Boolean).join(' · '),
-      sub: spreads.length ? `ממרחים: ${spreads.join(', ')}` : 'בלי ממרחים',
+      sub: sub.length ? sub.join(' · ') : 'בלי תוספות',
     };
   }
 
@@ -150,9 +156,12 @@
     $('#sandwichPrice').textContent = money(m.prices.sandwich);
     $('#breads').innerHTML = m.breads.map((b, i) => optionButton('breads', b, i)).join('');
     $('#spreads').innerHTML = m.spreads.map((s, i) => optionButton('spreads', s, i)).join('');
+    $('#vegetables').innerHTML = m.vegetables.map((v, i) => optionButton('vegetables', v, i)).join('');
+    $('#step3').classList.toggle('hidden', !m.vegetables.length);
     $('#fillings').innerHTML = m.fillings.map((f, i) => optionButton('fillings', f, i)).join('');
     if (builder.bread && !available('breads', builder.bread)) builder.bread = null;
     builder.spreads = builder.spreads.filter((id) => available('spreads', id));
+    builder.vegetables = builder.vegetables.filter((id) => available('vegetables', id));
     if (builder.filling && !available('fillings', builder.filling)) builder.filling = null;
     syncBuilder();
   }
@@ -160,12 +169,13 @@
   function isSelected(cat, id) {
     if (cat === 'breads') return builder.bread === id;
     if (cat === 'spreads') return builder.spreads.includes(id);
+    if (cat === 'vegetables') return builder.vegetables.includes(id);
     return builder.filling === id;
   }
 
   function syncBuilder() {
     for (const btn of $$('.builder .opt')) btn.setAttribute('aria-pressed', String(isSelected(btn.dataset.cat, btn.dataset.id)));
-    const stepDone = { 1: Boolean(builder.bread), 2: builder.spreads.length > 0, 3: Boolean(builder.filling) };
+    const stepDone = { 1: Boolean(builder.bread), 2: builder.spreads.length > 0, 3: builder.vegetables.length > 0, 4: Boolean(builder.filling) };
     for (const el of $$('.step-num')) {
       const done = stepDone[el.dataset.step];
       if (done && !el.classList.contains('done')) replay(el, 'pop');
@@ -183,6 +193,7 @@
     const items = [];
     if (builder.bread) items.push({ key: `b:${builder.bread}`, ...find('breads', builder.bread) });
     for (const id of builder.spreads) items.push({ key: `s:${id}`, ...find('spreads', id) });
+    for (const id of builder.vegetables) items.push({ key: `v:${id}`, ...find('vegetables', id) });
     if (builder.filling) items.push({ key: `f:${builder.filling}`, ...find('fillings', builder.filling) });
     return items;
   }
@@ -217,8 +228,8 @@
     const firstBread = cat === 'breads' && !builder.bread;
     if (cat === 'breads') builder.bread = id;
     if (cat === 'fillings') builder.filling = builder.filling === id ? null : id;
-    if (cat === 'spreads') {
-      builder.spreads = builder.spreads.includes(id) ? builder.spreads.filter((x) => x !== id) : [...builder.spreads, id];
+    if (cat === 'spreads' || cat === 'vegetables') {
+      builder[cat] = builder[cat].includes(id) ? builder[cat].filter((x) => x !== id) : [...builder[cat], id];
     }
     vibrate(8);
     syncBuilder();
@@ -231,7 +242,7 @@
   }
 
   function addSandwichToCart(s, qty) {
-    const item = { type: 'sandwich', bread: s.bread, spreads: [...s.spreads], filling: s.filling || null };
+    const item = { type: 'sandwich', bread: s.bread, spreads: [...s.spreads], vegetables: [...(s.vegetables || [])], filling: s.filling || null };
     const key = sandwichKey(item);
     const existing = cart.find((i) => i.type === 'sandwich' && sandwichKey(i) === key);
     if (existing) existing.qty = Math.min(20, existing.qty + qty);
@@ -254,8 +265,8 @@
     $('#favorites').innerHTML = favorites.map((f, idx) => {
       const ok = sandwichAvailable(f);
       const t = sandwichText(f);
-      const imgs = [find('breads', f.bread), f.filling && find('fillings', f.filling), ...f.spreads.slice(0, 2).map((id) => find('spreads', id))]
-        .filter(Boolean).map((x) => `<img src="${esc(x.img)}" alt="" />`).join('');
+      const imgs = [find('breads', f.bread), f.filling && find('fillings', f.filling), ...f.spreads.slice(0, 2).map((id) => find('spreads', id)), ...f.vegetables.slice(0, 2).map((id) => find('vegetables', id))]
+        .filter(Boolean).slice(0, 5).map((x) => `<img src="${esc(x.img)}" alt="" />`).join('');
       return `<div class="fav glass" style="--i:${idx}">
         <button type="button" class="fav-del" data-del="${idx}" aria-label="מחיקה">✕</button>
         <div class="fav-imgs">${imgs}</div>
@@ -287,7 +298,7 @@
 
   function saveFavorite() {
     if (!builder.bread) return;
-    const fav = { bread: builder.bread, spreads: [...builder.spreads], filling: builder.filling };
+    const fav = { bread: builder.bread, spreads: [...builder.spreads], vegetables: [...builder.vegetables], filling: builder.filling };
     if (favorites.some((f) => sandwichKey(f) === sandwichKey(fav))) { notify('⭐', 'כבר שמור אצלך'); return; }
     favorites.unshift(fav);
     favorites = favorites.slice(0, 8);
@@ -515,7 +526,7 @@
           body: JSON.stringify({
             name, phone, notes: $('#fNotes').value, etaMinutes: eta,
             items: cart.map((i) => (i.type === 'sandwich'
-              ? { type: 'sandwich', bread: i.bread, spreads: i.spreads, filling: i.filling, qty: i.qty }
+              ? { type: 'sandwich', bread: i.bread, spreads: i.spreads, vegetables: i.vegetables || [], filling: i.filling, qty: i.qty }
               : { type: 'drink', drink: i.drink, qty: i.qty })),
           }),
         }),
@@ -650,8 +661,9 @@
   function itemLine(i) {
     if (i.type === 'drink') return `<span class="q">${i.qty}×</span> 🥤 ${esc(i.drink.name)}`;
     const parts = [i.bread.name, i.filling && i.filling.name].filter(Boolean).join(' · ');
-    const spreads = i.spreads.length ? ` <small>(${esc(i.spreads.map((s) => s.name).join(', '))})</small>` : '';
-    return `<span class="q">${i.qty}×</span> 🥪 ${esc(parts)}${spreads}`;
+    const extras = [...i.spreads, ...(i.vegetables || [])].map((s) => s.name);
+    const small = extras.length ? ` <small>(${esc(extras.join(', '))})</small>` : '';
+    return `<span class="q">${i.qty}×</span> 🥪 ${esc(parts)}${small}`;
   }
 
   function buildStatusSkeleton(o) {
@@ -782,6 +794,17 @@
     $('#shopName').textContent = MENU.shopName;
   }
 
+  async function refreshMenu() {
+    if (!MENU || !$('#sheet').classList.contains('hidden')) return;
+    try {
+      const next = await (await fetch('/api/menu')).json();
+      if (JSON.stringify(next) === JSON.stringify(MENU)) return;
+      MENU = next;
+      renderBuilderOptions();
+      renderAll();
+    } catch { /* offline, try again later */ }
+  }
+
   function renderAll() {
     syncBuilder();
     renderFavorites();
@@ -802,7 +825,7 @@
   }
 
   function bindEvents() {
-    for (const id of ['#breads', '#spreads', '#fillings']) $(id).addEventListener('click', onOptionClick);
+    for (const id of ['#breads', '#spreads', '#vegetables', '#fillings']) $(id).addEventListener('click', onOptionClick);
     $('#qtyMinus').addEventListener('click', () => { builder.qty = Math.max(1, builder.qty - 1); syncBuilder(); replay($('#qty'), 'pop'); });
     $('#qtyPlus').addEventListener('click', () => { builder.qty = Math.min(20, builder.qty + 1); syncBuilder(); replay($('#qty'), 'pop'); });
     $('#addSandwich').addEventListener('click', () => {
@@ -812,7 +835,7 @@
       vibrate(20);
       notify('🥪', builder.qty > 1 ? `${builder.qty} סנדוויצ'ים נוספו לסל` : 'הסנדוויץ\' נוסף לסל');
       afterAdd(sources);
-      Object.assign(builder, { bread: null, spreads: [], filling: null, qty: 1 });
+      Object.assign(builder, { bread: null, spreads: [], vegetables: [], filling: null, qty: 1 });
       syncBuilder();
     });
     $('#saveFav').addEventListener('click', saveFavorite);
@@ -861,7 +884,10 @@
     });
     $('#newOrderBtn').addEventListener('click', hideStatus);
 
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshCurrentOrder(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') { refreshCurrentOrder(); refreshMenu(); }
+    });
+    setInterval(refreshMenu, 60000);
     setInterval(() => { const o = orderCache[currentOrderId]; if (o) updateEta(o); }, 15000);
   }
 
