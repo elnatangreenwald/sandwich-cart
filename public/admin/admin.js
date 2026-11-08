@@ -44,21 +44,47 @@
     return data;
   }
 
-  function chime() {
-    if (!soundOn || !audioCtx) return;
-    const now = audioCtx.currentTime;
-    [[880, 0], [1175, 0.16], [1568, 0.32]].forEach(([freq, at]) => {
+  // Bell partials: [frequency ratio, level, decay seconds].
+  const BELL = [[1, 1, 1.4], [2, 0.55, 0.9], [3, 0.3, 0.6], [4.16, 0.28, 0.45], [5.43, 0.16, 0.3], [6.8, 0.08, 0.2]];
+  const ALERT = [[1318.5, 0], [987.8, 0.2], [1318.5, 0.4], [1318.5, 1.25], [987.8, 1.45], [1318.5, 1.65]];
+  let alertOut = null;
+
+  function alertBus() {
+    if (alertOut) return alertOut;
+    const comp = audioCtx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.knee.value = 6;
+    comp.ratio.value = 10;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.25;
+    const master = audioCtx.createGain();
+    master.gain.value = 1.4;
+    comp.connect(master).connect(audioCtx.destination);
+    alertOut = comp;
+    return alertOut;
+  }
+
+  function strike(freq, at, out) {
+    for (const [ratio, level, decay] of BELL) {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + at);
-      gain.gain.exponentialRampToValueAtTime(0.5, now + at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.45);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(now + at);
-      osc.stop(now + at + 0.5);
-    });
+      osc.type = ratio === 1 ? 'triangle' : 'sine';
+      osc.frequency.value = freq * ratio;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(level * 0.6, at + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      osc.connect(gain).connect(out);
+      osc.start(at);
+      osc.stop(at + decay + 0.05);
+    }
+  }
+
+  function chime() {
+    if (!soundOn || !audioCtx) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const out = alertBus();
+    const now = audioCtx.currentTime + 0.02;
+    for (const [freq, at] of ALERT) strike(freq, now + at, out);
   }
 
   async function keepAwake() {
