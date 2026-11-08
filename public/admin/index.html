@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#2b1d3a" />
+  <meta name="robots" content="noindex" />
+  <title>ניהול הזמנות</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/admin/admin.css" />
+</head>
+<body>
+  <div class="bg" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+
+  <section id="loginView" class="center-view hidden">
+    <form id="loginForm" class="login glass">
+      <div class="big-emoji">🥪</div>
+      <h1>ניהול העגלה</h1>
+      <input id="password" type="password" placeholder="סיסמה" autocomplete="current-password" required />
+      <div id="loginError" class="error hidden"></div>
+      <button type="submit" class="btn primary">כניסה</button>
+    </form>
+  </section>
+
+  <section id="startView" class="center-view hidden">
+    <div class="login glass">
+      <div class="big-emoji">🔔</div>
+      <h1>מתחילים משמרת</h1>
+      <p>לחיצה מפעילה צלילי התראה ומשאירה את המסך דולק</p>
+      <button type="button" id="startBtn" class="btn primary">יאללה, מתחילים</button>
+    </div>
+  </section>
+
+  <div id="app" class="hidden">
+    <header class="topbar glass">
+      <div class="title"><span class="logo">🥪</span><b id="shopName">ניהול הזמנות</b><span id="conn" class="conn" title="חיבור חי"></span></div>
+      <nav class="tabs" id="tabs">
+        <button type="button" data-tab="board" class="tab active">הזמנות פעילות <span class="badge" id="activeCount">0</span></button>
+        <button type="button" data-tab="done" class="tab">הושלמו <span class="badge muted" id="doneCount">0</span></button>
+        <button type="button" data-tab="menu" class="tab">תפריט ומלאי</button>
+        <button type="button" data-tab="summary" class="tab">סיכום יומי</button>
+      </nav>
+      <div class="tools">
+        <span id="clock" class="clock"></span>
+        <button type="button" id="soundBtn" class="icon-btn" title="צליל">🔔</button>
+        <button type="button" id="logoutBtn" class="icon-btn" title="יציאה">🚪</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="tab-board" class="tab-panel">
+        <div class="board">
+          <div class="col col-new"><h2>🆕 חדשות <span id="cnt-new" class="badge">0</span></h2><div id="list-new" class="cards"></div></div>
+          <div class="col col-preparing"><h2>👨‍🍳 בהכנה <span id="cnt-preparing" class="badge">0</span></h2><div id="list-preparing" class="cards"></div></div>
+          <div class="col col-ready"><h2>✅ מוכנות לאיסוף <span id="cnt-ready" class="badge">0</span></h2><div id="list-ready" class="cards"></div></div>
+        </div>
+      </section>
+
+      <section id="tab-done" class="tab-panel hidden"><div id="doneList" class="done-list"></div></section>
+      <section id="tab-menu" class="tab-panel hidden"><div id="menuEditor" class="menu-editor"></div></section>
+      <section id="tab-summary" class="tab-panel hidden"><div id="summary" class="summary"></div></section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

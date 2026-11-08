@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ff7a59" />
+  <title>הזמנת סנדוויצ'ים</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥪</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span>
+  </div>
+
+  <header class="top glass">
+    <div class="brand"><span class="logo">🥪</span><h1 id="shopName">עגלת הסנדוויצ'ים</h1></div>
+    <button id="myOrdersBtn" class="pill hidden" type="button">📦 ההזמנות שלי</button>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <h2>מה בא לך היום?</h2>
+      <p>בונים סנדוויץ', מוסיפים שתייה, ואוספים בלי לחכות בתור</p>
+    </section>
+
+    <section id="favoritesSection" class="hidden">
+      <h3 class="section-title">⭐ הקבועים שלי</h3>
+      <div id="favorites" class="h-scroll"></div>
+    </section>
+
+    <section class="glass card builder">
+      <div class="builder-head">
+        <h3>בונים סנדוויץ'</h3>
+        <span class="price-tag" id="sandwichPrice"></span>
+      </div>
+
+      <div class="step">
+        <div class="step-title"><span class="step-num">1</span> בוחרים לחם</div>
+        <div id="breads" class="options cols-3"></div>
+      </div>
+
+      <div class="step">
+        <div class="step-title"><span class="step-num">2</span> ממרחים <small>אפשר כמה</small></div>
+        <div id="spreads" class="options cols-4"></div>
+      </div>
+
+      <div class="step">
+        <div class="step-title"><span class="step-num">3</span> מילוי <small>לא חובה · לחיצה נוספת מבטלת</small></div>
+        <div id="fillings" class="options cols-4"></div>
+      </div>
+
+      <div id="builderSummary" class="builder-summary">בחרו לחם כדי להתחיל 👆</div>
+
+      <div class="builder-actions">
+        <div class="stepper" aria-label="כמות">
+          <button type="button" id="qtyMinus" aria-label="פחות">−</button>
+          <span id="qty">1</span>
+          <button type="button" id="qtyPlus" aria-label="עוד">+</button>
+        </div>
+        <button type="button" id="addSandwich" class="btn primary" disabled>הוספה לסל</button>
+      </div>
+      <button type="button" id="saveFav" class="btn ghost full" disabled>⭐ שמירה כסנדוויץ' קבוע</button>
+    </section>
+
+    <section>
+      <h3 class="section-title">🥤 שתייה ואייס קפה</h3>
+      <div id="drinks" class="drinks"></div>
+    </section>
+
+    <p class="footer-note">התשלום מתבצע בעת האיסוף 💛</p>
+  </main>
+
+  <div id="cartBar" class="cart-bar hidden">
+    <button type="button" id="openCart" class="btn primary big">
+      <span>🛒 לסל ולהזמנה</span><span id="cartBarInfo"></span>
+    </button>
+  </div>
+
+  <div id="sheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-panel glass-strong">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head">
+        <h3 id="sheetTitle">הסל שלי</h3>
+        <button type="button" class="icon-btn" data-close aria-label="סגירה">✕</button>
+      </div>
+      <ul id="cartList" class="cart-list"></ul>
+
+      <form id="orderForm" class="order-form" novalidate>
+        <label>שם
+          <input id="fName" name="name" autocomplete="given-name" maxlength="40" required placeholder="איך לקרוא לך?" />
+        </label>
+        <label>טלפון
+          <input id="fPhone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="12" required placeholder="05X-XXXXXXX" />
+        </label>
+
+        <div class="eta-block">
+          <div class="eta-title">⏱️ בעוד כמה דקות תגיעו לאסוף?</div>
+          <div id="etaChips" class="chips"></div>
+          <div class="eta-custom">
+            <span>או בדיוק:</span>
+            <input id="fEtaCustom" type="number" inputmode="numeric" min="0" max="240" placeholder="דקות" />
+          </div>
+          <div id="etaHint" class="eta-hint"></div>
+        </div>
+
+        <label>הערות <small>(לא חובה)</small>
+          <textarea id="fNotes" name="notes" rows="2" maxlength="300" placeholder="למשל: בלי עגבנייה, חריף בצד..."></textarea>
+        </label>
+
+        <div id="formError" class="form-error hidden"></div>
+
+        <button type="submit" id="submitOrder" class="btn primary big">
+          <span>שליחת הזמנה</span><span id="submitTotal"></span>
+        </button>
+        <p class="pay-note">התשלום בעת האיסוף</p>
+      </form>
+    </div>
+  </div>
+
+  <div id="statusView" class="status-view hidden" role="dialog" aria-modal="true">
+    <div class="status-panel glass-strong">
+      <div id="statusTabs" class="chips status-tabs"></div>
+      <div id="statusBody"></div>
+      <button type="button" id="newOrderBtn" class="btn ghost full">🥪 להזמנה נוספת</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

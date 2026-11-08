@@ -1,0 +1,17 @@
+{
+  "name": "sandwich-cart",
+  "version": "1.0.0",
+  "description": "מערכת הזמנות לעגלת סנדוויצ'ים - ממשק לקוח לנייד וממשק ניהול לטאבלט",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
