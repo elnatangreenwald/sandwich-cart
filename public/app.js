@@ -440,7 +440,7 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     navigator.serviceWorker.addEventListener('message', (ev) => {
-      if (ev.data && ev.data.type === 'order-push') refreshCurrentOrder();
+      if (ev.data && ev.data.type === 'order-push') refreshOrders();
     });
   }
 
@@ -567,8 +567,14 @@
     btn.classList.remove('success');
     btn.disabled = false;
     renderAll();
+    orderCache[data.id] = data;
+    watchOrder(data.id);
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+    await wait(reduceMotion ? 0 : 250);
+    renderTimer();
+    renderMyOrdersBtn();
     confetti();
-    showStatus(data.id, data);
+    notify('📨', `הזמנה #${data.number} נשלחה!`, 'הטיימר למעלה יראה לך מתי מוכן', 4000);
   }
 
   async function refreshMenuAfterChange() {
@@ -592,7 +598,34 @@
   let currentOrderId = null;
   let shownOrderId = null;
   let shownStatus = null;
-  let stream = null;
+  const streams = {};
+  const TERMINAL = ['picked_up', 'cancelled'];
+
+  function watchOrder(id) {
+    if (streams[id]) return;
+    const es = new EventSource(`/api/orders/${encodeURIComponent(id)}/stream`);
+    streams[id] = es;
+    es.addEventListener('order', (ev) => applyOrderUpdate(JSON.parse(ev.data)));
+    es.onerror = async () => {
+      const res = await fetch(`/api/orders/${encodeURIComponent(id)}`).catch(() => null);
+      if (res && res.status === 404) {
+        unwatchOrder(id);
+        delete orderCache[id];
+        const mine = myOrders();
+        mine.ids = mine.ids.filter((x) => x !== id);
+        store.set('sc_orders', mine);
+        if (currentOrderId === id) hideStatus();
+        renderMyOrdersBtn();
+        renderTimer();
+      }
+    };
+  }
+
+  function unwatchOrder(id) {
+    if (!streams[id]) return;
+    streams[id].close();
+    delete streams[id];
+  }
 
   function showStatus(id, initial) {
     currentOrderId = id;
@@ -603,20 +636,7 @@
       document.body.style.overflow = 'hidden';
     }
     renderStatus();
-    if (stream) stream.close();
-    stream = new EventSource(`/api/orders/${encodeURIComponent(id)}/stream`);
-    stream.addEventListener('order', (ev) => applyOrderUpdate(JSON.parse(ev.data)));
-    stream.onerror = async () => {
-      const res = await fetch(`/api/orders/${encodeURIComponent(id)}`).catch(() => null);
-      if (res && res.status === 404) {
-        stream.close();
-        const mine = myOrders();
-        mine.ids = mine.ids.filter((x) => x !== id);
-        store.set('sc_orders', mine);
-        hideStatus();
-        renderMyOrdersBtn();
-      }
-    };
+    watchOrder(id);
     if (pushSupported && Notification.permission === 'granted' && !pushState[id]) subscribePush(id).then(updatePushCard);
   }
 
@@ -635,17 +655,22 @@
       }
     }
     if (o.id === currentOrderId) renderStatus();
+    else if (TERMINAL.includes(o.status)) unwatchOrder(o.id);
     renderMyOrdersBtn();
+    renderTimer();
   }
 
-  async function refreshCurrentOrder() {
-    if (!currentOrderId) return;
-    const res = await fetch(`/api/orders/${encodeURIComponent(currentOrderId)}`).catch(() => null);
-    if (res && res.ok) applyOrderUpdate(await res.json());
+  async function refreshOrders() {
+    const ids = new Set([...Object.keys(streams), currentOrderId].filter(Boolean));
+    await Promise.all([...ids].map(async (id) => {
+      const res = await fetch(`/api/orders/${encodeURIComponent(id)}`).catch(() => null);
+      if (res && res.ok) applyOrderUpdate(await res.json());
+    }));
   }
 
   async function hideStatus() {
-    if (stream) { stream.close(); stream = null; }
+    const closing = orderCache[currentOrderId];
+    if (closing && TERMINAL.includes(closing.status)) unwatchOrder(closing.id);
     currentOrderId = null;
     shownOrderId = null;
     const view = $('#statusView');
@@ -776,6 +801,109 @@
     }
   }
 
+  // ---------- home-screen order timer ----------
+  let timerId = null;
+  let timerStatus = null;
+  let timerHideT = null;
+  const RING = 2 * Math.PI * 52;
+  const TIMER_STATUS = { new: 'התקבלה 📨', preparing: 'בהכנה 🔥', ready: '🎉' };
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  function pickTimerOrder() {
+    const active = myOrders().ids.map((id) => orderCache[id]).filter((o) => o && !TERMINAL.includes(o.status));
+    active.sort((a, b) => (b.status === 'ready') - (a.status === 'ready') || a.arriveAt - b.arriveAt);
+    return { o: active[0], more: active.length - 1 };
+  }
+
+  async function hideTimer() {
+    const el = $('#orderTimer');
+    if (el.classList.contains('hidden')) return;
+    if (!reduceMotion) {
+      el.classList.add('leaving');
+      await wait(350);
+    }
+    if (timerId) return;
+    el.classList.add('hidden');
+    el.classList.remove('leaving');
+    $('.hero').classList.remove('has-timer');
+  }
+
+  function renderTimer() {
+    const el = $('#orderTimer');
+    const { o, more } = pickTimerOrder();
+    if (!o) {
+      if (!timerId) return;
+      const last = orderCache[timerId];
+      timerId = null;
+      timerStatus = null;
+      if (last && last.status === 'picked_up' && !el.classList.contains('hidden')) {
+        el.dataset.state = 'done';
+        $('.ot-status', el).textContent = '';
+        $('.ot-time', el).textContent = 'בתיאבון!';
+        $('.ot-label', el).textContent = 'תודה 💛';
+        replay(el, 'timer-bump');
+        clearTimeout(timerHideT);
+        timerHideT = setTimeout(hideTimer, 3500);
+      } else {
+        hideTimer();
+      }
+      return;
+    }
+    clearTimeout(timerHideT);
+    const appearing = el.classList.contains('hidden') || el.classList.contains('leaving');
+    const changed = timerId !== o.id || timerStatus !== o.status;
+    timerId = o.id;
+    timerStatus = o.status;
+    el.dataset.state = o.status;
+    $('.ot-num', el).textContent = `#${o.number}`;
+    $('.ot-status', el).textContent = TIMER_STATUS[o.status] || '';
+    const moreEl = $('.ot-more', el);
+    moreEl.textContent = more > 0 ? `+${more}` : '';
+    moreEl.classList.toggle('hidden', more <= 0);
+    if (appearing) {
+      el.classList.remove('hidden', 'leaving');
+      $('.hero').classList.add('has-timer');
+      $('.ot-sweep', el).style.animationDelay = `-${Date.now() % 60000}ms`;
+      replay(el, 'timer-in');
+    } else if (changed) {
+      replay(el, o.status === 'ready' ? 'timer-ready' : 'timer-bump');
+    }
+    tickTimer();
+  }
+
+  function tickTimer() {
+    const el = $('#orderTimer');
+    const o = orderCache[timerId];
+    if (!o || el.classList.contains('hidden')) return;
+    let big;
+    let label;
+    let frac = 1;
+    if (o.status === 'ready') {
+      big = 'מוכן!';
+      label = 'לאיסוף 🛍️';
+    } else {
+      const now = Date.now();
+      const left = Math.max(0, Math.ceil((o.arriveAt - now) / 1000));
+      frac = Math.min(1, Math.max(0, (now - o.createdAt) / Math.max(1, o.arriveAt - o.createdAt)));
+      if (left > 0) {
+        const h = Math.floor(left / 3600);
+        const m = Math.floor((left % 3600) / 60);
+        big = h ? `${h}:${pad2(m)}:${pad2(left % 60)}` : `${pad2(m)}:${pad2(left % 60)}`;
+        label = 'עד האיסוף';
+      } else {
+        big = 'עוד רגע';
+        label = o.status === 'preparing' ? 'מסיימים להכין' : 'כמעט מתחילים';
+      }
+    }
+    $('.ot-time', el).textContent = big;
+    $('.ot-label', el).textContent = label;
+    el.classList.toggle('long', big.length > 5);
+    const ring = $('.ot-val', el);
+    ring.style.strokeDasharray = RING;
+    ring.style.strokeDashoffset = RING * (1 - frac);
+    el.setAttribute('aria-label', `הזמנה ${o.number}: ${big} ${label}. לחיצה לפרטים`);
+  }
+
   function renderMyOrdersBtn() {
     const ids = myOrders().ids;
     const btn = $('#myOrdersBtn');
@@ -885,10 +1013,12 @@
     $('#newOrderBtn').addEventListener('click', hideStatus);
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') { refreshCurrentOrder(); refreshMenu(); }
+      if (document.visibilityState === 'visible') { refreshOrders(); refreshMenu(); }
     });
+    $('#orderTimer').addEventListener('click', () => { if (timerId) showStatus(timerId); });
     setInterval(refreshMenu, 60000);
     setInterval(() => { const o = orderCache[currentOrderId]; if (o) updateEta(o); }, 15000);
+    setInterval(tickTimer, 1000);
   }
 
   async function init() {
@@ -925,9 +1055,9 @@
     mine.ids = mine.ids.filter((id) => orderCache[id]);
     store.set('sc_orders', mine);
     renderMyOrdersBtn();
-    const active = mine.ids.filter((id) => !['picked_up', 'cancelled'].includes(orderCache[id].status));
+    mine.ids.filter((id) => !TERMINAL.includes(orderCache[id].status)).forEach(watchOrder);
+    renderTimer();
     if (linked && orderCache[linked]) showStatus(linked);
-    else if (active.length) showStatus(active[active.length - 1]);
   }
 
   init();

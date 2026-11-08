@@ -30,8 +30,30 @@
   <main id="main">
     <section class="hero">
       <div class="hero-float" aria-hidden="true"><span>🥖</span><span>🧀</span><span>🍅</span><span>🥑</span><span>🥚</span></div>
-      <h2>מה בא לך <span class="grad">היום?</span></h2>
-      <p>בונים סנדוויץ', מוסיפים שתייה, ואוספים בלי לחכות בתור</p>
+      <div class="hero-text">
+        <h2>מה בא לך <span class="grad">היום?</span></h2>
+        <p>בונים סנדוויץ', מוסיפים שתייה, ואוספים בלי לחכות בתור</p>
+      </div>
+      <button type="button" id="orderTimer" class="otimer hidden" aria-live="polite">
+        <span class="ot-wave" aria-hidden="true"></span>
+        <svg class="ot-ring" viewBox="0 0 120 120" aria-hidden="true">
+          <defs>
+            <linearGradient id="otGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#ff6b4a" /><stop offset=".55" stop-color="#ff4d8d" /><stop offset="1" stop-color="#7c5cff" />
+            </linearGradient>
+          </defs>
+          <circle class="ot-track" cx="60" cy="60" r="52" />
+          <circle class="ot-ticks" cx="60" cy="60" r="43" />
+          <circle class="ot-val" cx="60" cy="60" r="52" />
+        </svg>
+        <span class="ot-sweep" aria-hidden="true"><i></i></span>
+        <span class="ot-face">
+          <small class="ot-top"><b class="ot-num"></b> <span class="ot-status"></span></small>
+          <b class="ot-time"></b>
+          <small class="ot-label"></small>
+        </span>
+        <span class="ot-more hidden"></span>
+      </button>
     </section>
 
     <section id="favoritesSection" class="reveal hidden">
