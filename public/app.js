@@ -27,39 +27,61 @@
   const STEPS = [['התקבלה', '📨'], ['בהכנה', '🔥'], ['מוכן', '🎉'], ['נאסף', '😋']];
 
   let MENU = null;
-  const builder = { bread: null, spreads: [], vegetables: [], filling: null, qty: 1 };
-  const withVeg = (i) => (i.type === 'drink' ? i : { ...i, vegetables: i.vegetables || [] });
+  const builder = { bread: null, spreads: [], vegetables: [], filling: null, extras: [], qty: 1 };
+  const withVeg = (i) => (i.type === 'drink' ? i : { ...i, vegetables: i.vegetables || [], extras: i.extras || [] });
   let cart = store.get('sc_cart', []).map(withVeg);
   let favorites = store.get('sc_favorites', []).map(withVeg);
   let eta = null;
+  let loyaltyState = null;
+  let useReward = true;
 
   // ---------- menu helpers ----------
   const find = (cat, id) => MENU.menu[cat].find((x) => x.id === id);
   const available = (cat, id) => { const x = find(cat, id); return Boolean(x && x.available); };
-  const sandwichKey = (s) => `s:${s.bread}|${[...s.spreads].sort().join(',')}|${[...(s.vegetables || [])].sort().join(',')}|${s.filling || ''}`;
+  const sortedIds = (list) => [...(list || [])].sort().join(',');
+  const sandwichKey = (s) => `s:${s.bread}|${sortedIds(s.spreads)}|${sortedIds(s.vegetables)}|${s.filling || ''}|${sortedIds(s.extras)}`;
 
   function sandwichAvailable(s) {
     return available('breads', s.bread)
       && s.spreads.every((id) => available('spreads', id))
       && (s.vegetables || []).every((id) => available('vegetables', id))
+      && (s.extras || []).every((id) => available('extras', id))
       && (!s.filling || available('fillings', s.filling));
   }
+
+  const sandwichPrice = (s) => MENU.menu.prices.sandwich + (s.extras || []).reduce((n, id) => n + (find('extras', id)?.price || 0), 0);
 
   function sandwichText(s) {
     const bread = find('breads', s.bread)?.name || '';
     const filling = s.filling ? find('fillings', s.filling)?.name : '';
     const spreads = s.spreads.map((id) => find('spreads', id)?.name).filter(Boolean);
     const vegetables = (s.vegetables || []).map((id) => find('vegetables', id)?.name).filter(Boolean);
-    const sub = [spreads.length && `ממרחים: ${spreads.join(', ')}`, vegetables.length && `ירקות: ${vegetables.join(', ')}`].filter(Boolean);
+    const extras = (s.extras || []).map((id) => find('extras', id)?.name).filter(Boolean);
+    const sub = [
+      spreads.length && `ממרחים: ${spreads.join(', ')}`,
+      vegetables.length && `ירקות: ${vegetables.join(', ')}`,
+      extras.length && `תוספות: ${extras.join(', ')}`,
+    ].filter(Boolean);
     return {
       title: [bread, filling].filter(Boolean).join(' · '),
       sub: sub.length ? sub.join(' · ') : 'בלי תוספות',
     };
   }
 
-  const itemPrice = (item) => (item.type === 'sandwich' ? MENU.menu.prices.sandwich : find('drinks', item.drink)?.price || 0);
+  const itemPrice = (item) => (item.type === 'sandwich' ? sandwichPrice(item) : find('drinks', item.drink)?.price || 0);
   const cartCount = () => cart.reduce((n, i) => n + i.qty, 0);
-  const cartTotal = () => cart.reduce((n, i) => n + itemPrice(i) * i.qty, 0);
+
+  // Mirrors the server's pricing; the server's numbers are what the order is actually charged.
+  function cartTotals() {
+    const promos = MENU.menu.promos || { comboDiscount: 0 };
+    const subtotal = cart.reduce((n, i) => n + itemPrice(i) * i.qty, 0);
+    const sandwiches = cart.reduce((n, i) => n + (i.type === 'sandwich' ? i.qty : 0), 0);
+    const drinks = cart.reduce((n, i) => n + (i.type === 'drink' ? i.qty : 0), 0);
+    const reward = useReward && loyaltyState && loyaltyState.rewardReady && sandwiches > 0 ? MENU.menu.prices.sandwich : 0;
+    const combo = Math.max(0, Math.min(sandwiches - (reward ? 1 : 0), drinks)) * promos.comboDiscount;
+    return { subtotal, combo, reward, total: Math.max(0, subtotal - combo - reward), sandwiches, drinks };
+  }
+  const cartTotal = () => cartTotals().total;
   const saveCart = () => store.set('sc_cart', cart);
 
   // ---------- motion helpers ----------
@@ -146,6 +168,7 @@
     return `<button type="button" class="opt" style="--i:${i}" data-cat="${cat}" data-id="${esc(item.id)}" aria-pressed="false" ${item.available ? '' : 'disabled'}>
       <span class="opt-img"><img src="${esc(item.img)}" alt="" loading="lazy" /></span>
       <span class="opt-name">${esc(item.name)}</span>
+      ${cat === 'extras' ? `<span class="opt-price">+${money(item.price)}</span>` : ''}
       <span class="check">✓</span>
       ${item.available ? '' : '<span class="sold-out">אזל</span>'}
     </button>`;
@@ -159,9 +182,13 @@
     $('#vegetables').innerHTML = m.vegetables.map((v, i) => optionButton('vegetables', v, i)).join('');
     $('#step3').classList.toggle('hidden', !m.vegetables.length);
     $('#fillings').innerHTML = m.fillings.map((f, i) => optionButton('fillings', f, i)).join('');
+    const extras = m.extras || [];
+    $('#extras').innerHTML = extras.map((x, i) => optionButton('extras', x, i)).join('');
+    $('#step5').classList.toggle('hidden', !extras.length);
     if (builder.bread && !available('breads', builder.bread)) builder.bread = null;
     builder.spreads = builder.spreads.filter((id) => available('spreads', id));
     builder.vegetables = builder.vegetables.filter((id) => available('vegetables', id));
+    builder.extras = builder.extras.filter((id) => available('extras', id));
     if (builder.filling && !available('fillings', builder.filling)) builder.filling = null;
     syncBuilder();
   }
@@ -170,12 +197,13 @@
     if (cat === 'breads') return builder.bread === id;
     if (cat === 'spreads') return builder.spreads.includes(id);
     if (cat === 'vegetables') return builder.vegetables.includes(id);
+    if (cat === 'extras') return builder.extras.includes(id);
     return builder.filling === id;
   }
 
   function syncBuilder() {
     for (const btn of $$('.builder .opt')) btn.setAttribute('aria-pressed', String(isSelected(btn.dataset.cat, btn.dataset.id)));
-    const stepDone = { 1: Boolean(builder.bread), 2: builder.spreads.length > 0, 3: builder.vegetables.length > 0, 4: Boolean(builder.filling) };
+    const stepDone = { 1: Boolean(builder.bread), 2: builder.spreads.length > 0, 3: builder.vegetables.length > 0, 4: Boolean(builder.filling), 5: builder.extras.length > 0 };
     for (const el of $$('.step-num')) {
       const done = stepDone[el.dataset.step];
       if (done && !el.classList.contains('done')) replay(el, 'pop');
@@ -185,7 +213,7 @@
     const ready = Boolean(builder.bread);
     $('#addSandwich').disabled = !ready;
     $('#saveFav').disabled = !ready;
-    $('#addSandwich').textContent = ready ? `הוספה לסל · ${money(MENU.menu.prices.sandwich * builder.qty)}` : 'הוספה לסל';
+    $('#addSandwich').textContent = ready ? `הוספה לסל · ${money(sandwichPrice(builder) * builder.qty)}` : 'הוספה לסל';
     renderTray();
   }
 
@@ -195,6 +223,7 @@
     for (const id of builder.spreads) items.push({ key: `s:${id}`, ...find('spreads', id) });
     for (const id of builder.vegetables) items.push({ key: `v:${id}`, ...find('vegetables', id) });
     if (builder.filling) items.push({ key: `f:${builder.filling}`, ...find('fillings', builder.filling) });
+    for (const id of builder.extras) items.push({ key: `x:${id}`, ...find('extras', id) });
     return items;
   }
 
@@ -228,7 +257,7 @@
     const firstBread = cat === 'breads' && !builder.bread;
     if (cat === 'breads') builder.bread = id;
     if (cat === 'fillings') builder.filling = builder.filling === id ? null : id;
-    if (cat === 'spreads' || cat === 'vegetables') {
+    if (cat === 'spreads' || cat === 'vegetables' || cat === 'extras') {
       builder[cat] = builder[cat].includes(id) ? builder[cat].filter((x) => x !== id) : [...builder[cat], id];
     }
     vibrate(8);
@@ -242,7 +271,7 @@
   }
 
   function addSandwichToCart(s, qty) {
-    const item = { type: 'sandwich', bread: s.bread, spreads: [...s.spreads], vegetables: [...(s.vegetables || [])], filling: s.filling || null };
+    const item = { type: 'sandwich', bread: s.bread, spreads: [...s.spreads], vegetables: [...(s.vegetables || [])], filling: s.filling || null, extras: [...(s.extras || [])] };
     const key = sandwichKey(item);
     const existing = cart.find((i) => i.type === 'sandwich' && sandwichKey(i) === key);
     if (existing) existing.qty = Math.min(20, existing.qty + qty);
@@ -271,7 +300,7 @@
         <button type="button" class="fav-del" data-del="${idx}" aria-label="מחיקה">✕</button>
         <div class="fav-imgs">${imgs}</div>
         <div class="fav-label"><b>${esc(t.title)}</b><br><small>${esc(t.sub)}</small></div>
-        <button type="button" class="btn primary" data-fav="${idx}" ${ok ? '' : 'disabled'}>${ok ? `+ לסל · ${money(MENU.menu.prices.sandwich)}` : 'חסר משהו כרגע'}</button>
+        <button type="button" class="btn primary" data-fav="${idx}" ${ok ? '' : 'disabled'}>${ok ? `+ לסל · ${money(sandwichPrice(f))}` : 'חסר משהו כרגע'}</button>
       </div>`;
     }).join('');
   }
@@ -298,7 +327,7 @@
 
   function saveFavorite() {
     if (!builder.bread) return;
-    const fav = { bread: builder.bread, spreads: [...builder.spreads], vegetables: [...builder.vegetables], filling: builder.filling };
+    const fav = { bread: builder.bread, spreads: [...builder.spreads], vegetables: [...builder.vegetables], filling: builder.filling, extras: [...builder.extras] };
     if (favorites.some((f) => sandwichKey(f) === sandwichKey(fav))) { notify('⭐', 'כבר שמור אצלך'); return; }
     favorites.unshift(fav);
     favorites = favorites.slice(0, 8);
@@ -986,7 +1015,7 @@
       vibrate(20);
       notify('🥪', builder.qty > 1 ? `${builder.qty} סנדוויצ'ים נוספו לסל` : 'הסנדוויץ\' נוסף לסל');
       afterAdd(sources);
-      Object.assign(builder, { bread: null, spreads: [], vegetables: [], filling: null, qty: 1 });
+      Object.assign(builder, { bread: null, spreads: [], vegetables: [], filling: null, extras: [], qty: 1 });
       syncBuilder();
     });
     $('#saveFav').addEventListener('click', saveFavorite);

@@ -9,6 +9,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="סנדוויצ'ים" />
   <title>הזמנת סנדוויצ'ים</title>
+  <meta name="description" content="בונים סנדוויץ', מוסיפים שתייה ואוספים מהעגלה בלי לחכות בתור. התשלום באיסוף." />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="he_IL" />
+  <meta property="og:url" content="%ORIGIN%/" />
+  <meta property="og:title" content="🥪 עגלת הסנדוויצ'ים · מזמינים בלי תור" />
+  <meta property="og:description" content="בונים סנדוויץ' טרי, מוסיפים שתייה, ואוספים מוכן מהעגלה. כל סנדוויץ' עשירי עלינו 🎁" />
+  <meta property="og:image" content="%ORIGIN%/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" type="image/png" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -62,6 +72,8 @@
       <div id="favorites" class="h-scroll"></div>
     </section>
 
+    <section id="loyaltyCard" class="loyalty glass reveal hidden" aria-live="polite"></section>
+
     <section class="glass card builder reveal">
       <div class="builder-head">
         <h3>בונים סנדוויץ'</h3>
@@ -88,6 +100,11 @@
         <div id="fillings" class="options cols-4"></div>
       </div>
 
+      <div class="step" id="step5">
+        <div class="step-title"><span class="step-num" data-step="5"><i>5</i></span> תוספות <small>בתוספת תשלום · אפשר כמה</small></div>
+        <div id="extras" class="options cols-4"></div>
+      </div>
+
       <div class="tray-wrap">
         <div id="trayEmpty" class="tray-empty">👆 בחרו לחם ונתחיל לבנות</div>
         <div id="tray" class="tray"></div>
@@ -106,6 +123,7 @@
 
     <section class="reveal">
       <h3 class="section-title">🥤 שתייה ואייס קפה</h3>
+      <div id="comboBanner" class="combo-banner hidden"></div>
       <div id="drinks" class="drinks"></div>
     </section>
 
@@ -129,6 +147,8 @@
         <button type="button" class="icon-btn" data-close aria-label="סגירה">✕</button>
       </div>
       <ul id="cartList" class="cart-list"></ul>
+      <div id="cartPromos"></div>
+      <div id="cartTotals" class="cart-totals"></div>
 
       <form id="orderForm" class="order-form" novalidate>
         <label>שם

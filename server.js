@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const webpush = require('web-push');
+const QRCode = require('qrcode');
 const defaultMenu = require('./defaultMenu');
 
 const PORT = process.env.PORT || 3000;
@@ -38,7 +39,8 @@ function writeJson(file, data) {
 const menuFile = path.join(DATA_DIR, 'menu.json');
 const ordersFile = (day) => path.join(DATA_DIR, `orders-${day}.json`);
 
-const CATEGORIES = ['breads', 'spreads', 'vegetables', 'fillings', 'drinks'];
+const CATEGORIES = ['breads', 'spreads', 'vegetables', 'fillings', 'extras', 'drinks'];
+const PRICED = new Set(['extras', 'drinks']);
 const uploadsDir = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -49,6 +51,7 @@ function loadMenu() {
   if (saved.version === 2) {
     for (const cat of CATEGORIES) if (!Array.isArray(saved[cat])) saved[cat] = menu[cat];
     if (!saved.prices) saved.prices = menu.prices;
+    saved.promos = { ...menu.promos, ...(saved.promos || {}) };
     return saved;
   }
   // Legacy file only stored availability/prices: overlay them onto the default catalog.
@@ -77,9 +80,63 @@ function saveState() {
   writeJson(ordersFile(state.day), state);
 }
 
+// ---------- history (anonymous daily totals, kept after the day's orders are deleted) ----------
+
+const historyFile = path.join(DATA_DIR, 'history.json');
+const HISTORY_DAYS = 400;
+let history = readJson(historyFile, { days: {} });
+
+const hourOf = (ts) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: TIME_ZONE }).format(ts);
+
+function summarizeDay(dayState) {
+  const valid = dayState.orders.filter((o) => o.status !== 'cancelled');
+  const items = { breads: {}, spreads: {}, vegetables: {}, fillings: {}, extras: {}, drinks: {} };
+  const hours = {};
+  const add = (cat, name, qty) => { items[cat][name] = (items[cat][name] || 0) + qty; };
+  let sandwiches = 0;
+  let drinks = 0;
+  for (const o of valid) {
+    const h = hourOf(o.createdAt);
+    hours[h] = (hours[h] || 0) + 1;
+    for (const i of o.items) {
+      if (i.type === 'drink') { drinks += i.qty; add('drinks', i.drink.name, i.qty); continue; }
+      sandwiches += i.qty;
+      add('breads', i.bread.name, i.qty);
+      add('fillings', i.filling ? i.filling.name : 'בלי מילוי', i.qty);
+      for (const s of i.spreads) add('spreads', s.name, i.qty);
+      for (const v of i.vegetables || []) add('vegetables', v.name, i.qty);
+      for (const x of i.extras || []) add('extras', x.name, i.qty);
+    }
+  }
+  const sum = (list, f) => list.reduce((n, o) => n + (f(o) || 0), 0);
+  return {
+    day: dayState.day,
+    orders: valid.length,
+    cancelled: dayState.orders.length - valid.length,
+    revenue: sum(valid, (o) => o.total),
+    collected: sum(valid.filter((o) => o.status === 'picked_up'), (o) => o.total),
+    discounts: sum(valid, (o) => (o.discounts ? o.discounts.combo + o.discounts.reward : 0)),
+    rewards: valid.filter((o) => o.discounts && o.discounts.reward > 0).length,
+    sandwiches,
+    drinks,
+    items,
+    hours,
+  };
+}
+
+function archiveDay(dayState) {
+  if (!dayState || !dayState.orders.length) return;
+  history.days[dayState.day] = summarizeDay(dayState);
+  const keep = Object.keys(history.days).sort().slice(-HISTORY_DAYS);
+  history.days = Object.fromEntries(keep.map((d) => [d, history.days[d]]));
+  writeJson(historyFile, history);
+}
+
 function removeOldDays() {
   for (const f of fs.readdirSync(DATA_DIR)) {
     if (/^orders-\d{4}-\d{2}-\d{2}\.json$/.test(f) && f !== `orders-${state.day}.json`) {
+      const old = readJson(path.join(DATA_DIR, f), null);
+      if (old && old.day && !history.days[old.day]) archiveDay(old);
       fs.rmSync(path.join(DATA_DIR, f), { force: true });
     }
   }
@@ -89,12 +146,56 @@ removeOldDays();
 function ensureToday() {
   const day = todayKey();
   if (day === state.day) return;
+  archiveDay(state);
   state = { day, seq: 0, orders: [] };
   saveState();
   removeOldDays();
   broadcastAdmin('reset', {});
 }
 setInterval(ensureToday, 60 * 1000);
+
+// ---------- loyalty (stamp card per phone) ----------
+
+const loyaltyFile = path.join(DATA_DIR, 'loyalty.json');
+const loyalty = readJson(loyaltyFile, {});
+const saveLoyalty = () => writeJson(loyaltyFile, loyalty);
+
+function loyaltyView(phone) {
+  const goal = menu.promos.loyaltyGoal;
+  const stamps = (loyalty[phone] && loyalty[phone].stamps) || 0;
+  return { enabled: goal > 0, goal, stamps, rewardReady: goal > 0 && stamps >= goal };
+}
+
+function addStamps(phone, delta) {
+  const rec = loyalty[phone] || { stamps: 0 };
+  rec.stamps = Math.max(0, rec.stamps + delta);
+  rec.updatedAt = Date.now();
+  loyalty[phone] = rec;
+  saveLoyalty();
+}
+
+const sandwichCount = (o) => o.items.reduce((n, i) => n + (i.type === 'sandwich' ? i.qty : 0), 0);
+
+// Stamps are earned on pickup and the free sandwich is refunded on cancel, so status flips stay consistent.
+function syncLoyalty(order, prevStatus) {
+  if (order.status === prevStatus) return;
+  if (order.status === 'picked_up' && !order.stampsGranted) {
+    order.stampsGranted = sandwichCount(order);
+    addStamps(order.phone, order.stampsGranted);
+  } else if (prevStatus === 'picked_up' && order.stampsGranted) {
+    addStamps(order.phone, -order.stampsGranted);
+    order.stampsGranted = 0;
+  }
+  if (order.reward) {
+    if (order.status === 'cancelled' && !order.reward.refunded) {
+      addStamps(order.phone, order.reward.stamps);
+      order.reward.refunded = true;
+    } else if (prevStatus === 'cancelled' && order.reward.refunded) {
+      addStamps(order.phone, -order.reward.stamps);
+      order.reward.refunded = false;
+    }
+  }
+}
 
 // ---------- web push ----------
 
@@ -192,7 +293,10 @@ function publicOrder(o) {
     number: o.number,
     name: o.name,
     items: o.items,
+    subtotal: o.subtotal ?? o.total,
+    discounts: o.discounts || { combo: 0, reward: 0 },
     total: o.total,
+    stampsEarned: o.stampsGranted || 0,
     status: o.status,
     createdAt: o.createdAt,
     arriveAt: o.arriveAt,
@@ -276,13 +380,20 @@ function buildItems(rawItems) {
         if (!f) throw new Error('המילוי שנבחר לא זמין כרגע');
         filling = { id: f.id, name: f.name };
       }
-      const unitPrice = menu.prices.sandwich;
+      const extraIds = Array.isArray(raw.extras) ? [...new Set(raw.extras)] : [];
+      const extras = extraIds.map((id) => {
+        const x = findAvailable('extras', id);
+        if (!x) throw new Error('אחת התוספות שנבחרו לא זמינה כרגע');
+        return { id: x.id, name: x.name, price: x.price };
+      });
+      const unitPrice = menu.prices.sandwich + extras.reduce((n, x) => n + x.price, 0);
       return {
         type: 'sandwich',
         bread: { id: bread.id, name: bread.name },
         spreads,
         vegetables,
         filling,
+        extras,
         qty,
         unitPrice,
         lineTotal: unitPrice * qty,
@@ -312,6 +423,24 @@ function buildItems(rawItems) {
 const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '32kb' }));
+const siteUrl = (req) => `${req.protocol}://${req.get('host')}`;
+
+// Link previews (WhatsApp, Facebook) need absolute URLs, so the origin is filled in per request.
+const indexFile = path.join(__dirname, 'public', 'index.html');
+app.get(['/', '/index.html'], (req, res) => {
+  fs.readFile(indexFile, 'utf8', (err, html) => {
+    if (err) return res.status(500).end();
+    res.set('Cache-Control', 'no-cache').type('html').send(html.replaceAll('%ORIGIN%', siteUrl(req)));
+  });
+});
+
+app.get('/qr.svg', async (req, res) => {
+  const svg = await QRCode.toString(`${siteUrl(req)}/`, {
+    type: 'svg', margin: 0, errorCorrectionLevel: 'M', color: { dark: '#2b1d3a', light: '#0000' },
+  });
+  res.set('Cache-Control', 'public, max-age=3600').type('image/svg+xml').send(svg);
+});
+
 app.use('/img', express.static(path.join(__dirname, 'public', 'img'), { maxAge: '7d' }));
 app.use('/uploads', express.static(uploadsDir, { maxAge: '30d', immutable: true }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
@@ -340,6 +469,18 @@ app.post('/api/orders', rateLimiter(30, 10 * 60 * 1000), (req, res) => {
   }
 
   const now = Date.now();
+  const subtotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
+  const sandwiches = items.reduce((n, i) => n + (i.type === 'sandwich' ? i.qty : 0), 0);
+  const drinks = items.reduce((n, i) => n + (i.type === 'drink' ? i.qty : 0), 0);
+  const card = loyaltyView(phone);
+  const reward = body.useReward === true && card.rewardReady && sandwiches > 0
+    ? { stamps: card.goal, amount: menu.prices.sandwich, refunded: false }
+    : null;
+  if (body.useReward === true && !reward) {
+    return res.status(400).json({ error: 'הסנדוויץ\' החינם לא זמין כרגע. עדכנו את הסל ונסו שוב', loyaltyChanged: true });
+  }
+  const combo = Math.min(sandwiches - (reward ? 1 : 0), drinks) * menu.promos.comboDiscount;
+  const discounts = { combo, reward: reward ? reward.amount : 0 };
   const order = {
     id: crypto.randomUUID(),
     number: ++state.seq,
@@ -348,16 +489,26 @@ app.post('/api/orders', rateLimiter(30, 10 * 60 * 1000), (req, res) => {
     notes,
     etaMinutes,
     items,
-    total: items.reduce((sum, i) => sum + i.lineTotal, 0),
+    subtotal,
+    discounts,
+    total: Math.max(0, subtotal - discounts.combo - discounts.reward),
+    reward,
     status: 'new',
     createdAt: now,
     arriveAt: now + etaMinutes * 60 * 1000,
     updatedAt: now,
   };
+  if (reward) addStamps(phone, -reward.stamps);
   state.orders.push(order);
   saveState();
   broadcastAdmin('order', adminOrder(order));
   res.status(201).json(publicOrder(order));
+});
+
+app.get('/api/loyalty/:phone', rateLimiter(60, 10 * 60 * 1000), (req, res) => {
+  const phone = String(req.params.phone).replace(/\D/g, '');
+  if (!/^0\d{8,9}$/.test(phone)) return res.status(400).json({ error: 'מספר טלפון לא תקין' });
+  res.json(loyaltyView(phone));
 });
 
 app.get('/api/push/key', (req, res) => {
@@ -431,8 +582,10 @@ app.patch('/api/admin/orders/:id', requireAdmin, (req, res) => {
   if (!order) return res.status(404).json({ error: 'ההזמנה לא נמצאה' });
   const { status } = req.body || {};
   if (!STATUSES.includes(status)) return res.status(400).json({ error: 'סטטוס לא תקין' });
-  const changed = order.status !== status;
+  const prevStatus = order.status;
+  const changed = prevStatus !== status;
   order.status = status;
+  syncLoyalty(order, prevStatus);
   updateOrder(order);
   if (changed) pushStatus(order).catch((err) => console.warn('push error', err.message));
   res.json(adminOrder(order));
@@ -454,13 +607,18 @@ app.put('/api/admin/menu', requireAdmin, (req, res) => {
   if (Number.isFinite(sandwichPrice) && sandwichPrice >= 0 && sandwichPrice <= 1000) {
     next.prices.sandwich = sandwichPrice;
   }
+  const promos = body.promos || {};
+  const combo = parsePrice(promos.comboDiscount);
+  if ('comboDiscount' in promos && combo !== null) next.promos.comboDiscount = combo;
+  const goal = Number.parseInt(promos.loyaltyGoal, 10);
+  if ('loyaltyGoal' in promos && goal >= 0 && goal <= 50) next.promos.loyaltyGoal = goal;
   for (const cat of CATEGORIES) {
     for (const incoming of Array.isArray(body[cat]) ? body[cat] : []) {
       const item = next[cat].find((x) => x.id === incoming.id);
       if (!item) continue;
       if (typeof incoming.available === 'boolean') item.available = incoming.available;
-      const price = Number(incoming.price);
-      if (cat === 'drinks' && Number.isFinite(price) && price >= 0 && price <= 1000) item.price = price;
+      const price = parsePrice(incoming.price);
+      if (PRICED.has(cat) && price !== null) item.price = price;
     }
   }
   saveMenu(next);
@@ -500,7 +658,7 @@ app.post('/api/admin/menu/:cat', requireAdmin, (req, res) => {
   if (!name) return res.status(400).json({ error: 'נא לתת שם לפריט' });
   if (menu[cat].length >= 40) return res.status(400).json({ error: 'יותר מדי פריטים בקטגוריה' });
   const item = { id: `${cat.slice(0, 3)}-${crypto.randomBytes(4).toString('hex')}`, name, img: '/img/placeholder.svg', available: true };
-  if (cat === 'drinks') {
+  if (PRICED.has(cat)) {
     const price = parsePrice(req.body.price);
     if (price === null) return res.status(400).json({ error: 'נא להזין מחיר' });
     item.price = price;
@@ -523,7 +681,7 @@ app.patch('/api/admin/menu/:cat/:id', requireAdmin, (req, res) => {
     item.name = name;
   }
   if (typeof body.available === 'boolean') item.available = body.available;
-  if (cat === 'drinks' && 'price' in body) {
+  if (PRICED.has(cat) && 'price' in body) {
     const price = parsePrice(body.price);
     if (price === null) return res.status(400).json({ error: 'מחיר לא תקין' });
     item.price = price;
@@ -570,6 +728,15 @@ app.post(
     res.json(menu);
   },
 );
+
+app.get('/api/admin/reports', requireAdmin, (req, res) => {
+  ensureToday();
+  const days = Math.min(HISTORY_DAYS, Math.max(1, Number.parseInt(req.query.days, 10) || 30));
+  const from = new Date(Date.now() - (days - 1) * 86400000);
+  const fromKey = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(from);
+  const past = Object.values(history.days).filter((d) => d.day >= fromKey && d.day !== state.day);
+  res.json({ days: [...past, summarizeDay(state)].sort((a, b) => a.day.localeCompare(b.day)) });
+});
 
 app.listen(PORT, () => {
   console.log(`Sandwich cart running on http://localhost:${PORT}`);
