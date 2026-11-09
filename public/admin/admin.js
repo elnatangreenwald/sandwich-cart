@@ -185,7 +185,8 @@
     const head = [i.bread.name, i.filling ? i.filling.name : 'בלי מילוי'].map(esc).join(' · ');
     const spreads = i.spreads.length ? i.spreads.map((s) => esc(s.name)).join(', ') : 'בלי ממרחים';
     const veg = (i.vegetables || []).length ? `🥗 ${i.vegetables.map((v) => esc(v.name)).join(', ')}` : 'בלי ירקות';
-    return `🥪 <b>${head}</b><small>${spreads}</small><small>${veg}</small>`;
+    const extras = (i.extras || []).length ? `<small class="iextras">➕ ${i.extras.map((x) => esc(x.name)).join(', ')}</small>` : '';
+    return `🥪 <b>${head}</b><small>${spreads}</small><small>${veg}</small>${extras}`;
   }
 
   function etaInfo(o) {
@@ -207,6 +208,15 @@
       urgency = 'bad'; text = minsLeft === 0 ? 'הלקוח אמור להגיע עכשיו!' : `הלקוח אמור להיות כאן (לפני ${-minsLeft} דק')`;
     }
     return { urgency, text, pct, late: minsLeft <= 0 && o.status !== 'ready' };
+  }
+
+  function discountHtml(o) {
+    const d = o.discounts;
+    if (!d || (!d.combo && !d.reward)) return '';
+    return `<div class="odisc">
+      ${d.reward ? `<span class="reward">🎁 סנדוויץ' חינם (כרטיסייה) <bdi dir="ltr">−${money(d.reward)}</bdi></span>` : ''}
+      ${d.combo ? `<span>🔥 קומבו <bdi dir="ltr">−${money(d.combo)}</bdi></span>` : ''}
+    </div>`;
   }
 
   function cardHtml(o) {
@@ -232,6 +242,7 @@
         </li>`).join('')}
       </ul>
       ${o.notes ? `<div class="onotes">📝 ${esc(o.notes)}</div>` : ''}
+      ${discountHtml(o)}
       <div class="ofoot">
         <span class="ototal">${money(o.total)} <small style="font-weight:500;font-size:13px">· ${doneCount}/${o.items.length} פריטים</small></span>
         <button type="button" class="act minor" data-cancel title="ביטול">✕</button>
@@ -306,14 +317,16 @@
     ['spreads', '🥫 ממרחים'],
     ['vegetables', '🥗 ירקות'],
     ['fillings', '🍳 מילויים'],
+    ['extras', '➕ תוספות בתשלום'],
     ['drinks', '🥤 שתייה'],
   ];
+  const PRICED = new Set(['extras', 'drinks']);
 
   function renderMenu() {
     if (!menu) return;
     const m = menu.menu;
     const group = (cat, title) => {
-      const withPrice = cat === 'drinks';
+      const withPrice = PRICED.has(cat);
       return `<div class="mgroup glass" data-cat="${cat}"><h3>${title} <span class="mcount">${(m[cat] || []).length}</span></h3><div class="mitems">
       ${(m[cat] || []).map((x) => `<div class="mitem ${x.available ? '' : 'off'}" data-id="${esc(x.id)}">
         <button type="button" class="mimg" data-upload title="החלפת תמונה"><img src="${esc(x.img)}" alt="" /><span class="cam">📷</span></button>
@@ -329,9 +342,31 @@
       </form>
     </div></div>`;
     };
+    const promos = m.promos || { comboDiscount: 0, loyaltyGoal: 0 };
     $('#menuEditor').innerHTML = `
-      <div class="mgroup glass"><h3>💰 מחיר סנדוויץ' <input class="price-input" type="number" min="0" step="0.5" value="${m.prices.sandwich}" id="sandwichPrice" aria-label="מחיר סנדוויץ'" /> ₪</h3>
-        <div class="mhelp">כולל לחם, ממרחים, ירקות ומילוי. לחיצה על תמונה מחליפה אותה · עריכת שם נשמרת ביציאה מהשדה · מתג כבוי = "אזל" אצל הלקוחות.</div></div>
+      <div class="mgroup glass settings">
+        <div class="setting">
+          <span class="s-ico">💰</span>
+          <div><b>מחיר סנדוויץ'</b><small>כולל לחם, ממרחים, ירקות ומילוי</small></div>
+          <label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${m.prices.sandwich}" id="sandwichPrice" aria-label="מחיר סנדוויץ'" /> ₪</label>
+        </div>
+        <div class="setting">
+          <span class="s-ico">🔥</span>
+          <div><b>הנחת קומבו</b><small>הנחה על כל זוג סנדוויץ' + שתייה · 0 = כבוי</small></div>
+          <label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${promos.comboDiscount}" data-promo="comboDiscount" aria-label="הנחת קומבו" /> ₪</label>
+        </div>
+        <div class="setting">
+          <span class="s-ico">🎟️</span>
+          <div><b>כרטיסיית ניקובים</b><small>כמה סנדוויצ'ים עד סנדוויץ' חינם · 0 = כבוי</small></div>
+          <label class="s-input"><input class="price-input" type="number" min="0" max="50" step="1" value="${promos.loyaltyGoal}" data-promo="loyaltyGoal" aria-label="יעד כרטיסייה" /></label>
+        </div>
+        <a class="setting link" href="/sign.html" target="_blank" rel="noopener">
+          <span class="s-ico">🖨️</span>
+          <div><b>שלט QR להדפסה</b><small>שלט A4 ומדבקות קטנות לעגלה</small></div>
+          <span class="s-go">פתיחה ←</span>
+        </a>
+        <div class="mhelp">לחיצה על תמונה מחליפה אותה · עריכת שם נשמרת ביציאה מהשדה · מתג כבוי = "אזל" אצל הלקוחות.</div>
+      </div>
       ${MENU_CATS.map(([cat, title]) => group(cat, title)).join('')}`;
   }
 
@@ -393,7 +428,7 @@
     const valid = all.filter((o) => o.status !== 'cancelled');
     const collected = all.filter((o) => o.status === 'picked_up').reduce((s, o) => s + o.total, 0);
     const expected = valid.reduce((s, o) => s + o.total, 0);
-    const counts = { breads: {}, spreads: {}, vegetables: {}, fillings: {}, drinks: {} };
+    const counts = { breads: {}, spreads: {}, vegetables: {}, fillings: {}, extras: {}, drinks: {} };
     let sandwiches = 0;
     for (const o of valid) {
       for (const i of o.items) {
@@ -404,6 +439,7 @@
         counts.fillings[f] = (counts.fillings[f] || 0) + i.qty;
         for (const s of i.spreads) counts.spreads[s.name] = (counts.spreads[s.name] || 0) + i.qty;
         for (const v of i.vegetables || []) counts.vegetables[v.name] = (counts.vegetables[v.name] || 0) + i.qty;
+        for (const x of i.extras || []) counts.extras[x.name] = (counts.extras[x.name] || 0) + i.qty;
       }
     }
     const bd = (title, obj) => {
@@ -424,8 +460,107 @@
         ${bd('🍳 מילויים', counts.fillings)}
         ${bd('🥫 ממרחים', counts.spreads)}
         ${bd('🥗 ירקות', counts.vegetables)}
+        ${bd('➕ תוספות', counts.extras)}
         ${bd('🥤 שתייה', counts.drinks)}
       </div>`;
+  }
+
+  // ---------- render: reports ----------
+  let reportDays = 7;
+  let reportData = null;
+  const dayLabel = (day) => new Date(`${day}T12:00:00`).toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric' });
+
+  async function loadReports() {
+    $('#reports').innerHTML = '<div class="empty">טוען דוח…</div>';
+    try {
+      reportData = await api(`/api/admin/reports?days=${reportDays}`);
+      renderReports();
+    } catch (e) {
+      $('#reports').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
+  }
+
+  function renderReports() {
+    if (!reportData) return;
+    const days = reportData.days;
+    const total = (k) => days.reduce((n, d) => n + (d[k] || 0), 0);
+    const revenue = total('revenue');
+    const orderCount = total('orders');
+    const merge = (cat) => {
+      const out = {};
+      for (const d of days) for (const [name, n] of Object.entries(d.items[cat] || {})) out[name] = (out[name] || 0) + n;
+      return out;
+    };
+    const hours = {};
+    for (const d of days) for (const [h, n] of Object.entries(d.hours || {})) hours[h] = (hours[h] || 0) + n;
+
+    const maxRev = Math.max(1, ...days.map((d) => d.revenue));
+    const revChart = days.map((d) => `<div class="rc-col" title="${dayLabel(d.day)}: ${money(d.revenue)} · ${d.orders} הזמנות">
+      <span class="rc-val">${d.revenue ? d.revenue : ''}</span>
+      <span class="rc-bar"><i style="height:${(d.revenue / maxRev) * 100}%"></i></span>
+      <span class="rc-lbl">${dayLabel(d.day)}</span>
+    </div>`).join('');
+
+    const hourKeys = Object.keys(hours).sort();
+    const maxHour = Math.max(1, ...Object.values(hours));
+    const hourChart = hourKeys.length
+      ? hourKeys.map((h) => `<div class="rc-col hour" title="${h}:00 · ${hours[h]} הזמנות"><span class="rc-val">${hours[h]}</span><span class="rc-bar"><i style="height:${(hours[h] / maxHour) * 100}%"></i></span><span class="rc-lbl">${h}:00</span></div>`).join('')
+      : '<div class="empty">—</div>';
+
+    const bd = (title, obj, limit = 8) => {
+      const rows = Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, limit);
+      const max = Math.max(1, ...rows.map((r) => r[1]));
+      return `<div class="bd glass"><h3>${title}</h3>${rows.map(([l, n], idx) => `<div class="bd-row"><span class="l">${idx === 0 ? '🏆 ' : ''}${esc(l)}</span><span class="bar"><i style="width:${(n / max) * 100}%"></i></span><span class="n">${n}</span></div>`).join('') || '<div class="empty">—</div>'}</div>`;
+    };
+
+    const busiest = hourKeys.length ? hourKeys.reduce((a, b) => (hours[b] > hours[a] ? b : a)) : null;
+    const bestDay = days.length ? days.reduce((a, b) => (b.revenue > a.revenue ? b : a)) : null;
+    $('#reports').innerHTML = `
+      <div class="stats">
+        <div class="stat glass"><b>${money(revenue)}</b><span>הכנסות</span></div>
+        <div class="stat glass"><b>${orderCount}</b><span>הזמנות</span></div>
+        <div class="stat glass"><b>${orderCount ? money(Math.round(revenue / orderCount)) : '—'}</b><span>ממוצע להזמנה</span></div>
+        <div class="stat glass"><b>${total('sandwiches')}</b><span>סנדוויצ'ים</span></div>
+        <div class="stat glass"><b>${money(total('discounts'))}</b><span>הנחות שניתנו</span></div>
+      </div>
+      <div class="insights">
+        ${bestDay && bestDay.revenue ? `<span>📈 היום החזק: <b>${dayLabel(bestDay.day)}</b> (${money(bestDay.revenue)})</span>` : ''}
+        ${busiest ? `<span>⏰ שעת השיא: <b>${busiest}:00</b></span>` : ''}
+        <span>🎁 סנדוויצ'ים חינם מהכרטיסייה: <b>${total('rewards')}</b></span>
+      </div>
+      <div class="bd glass chart-card"><h3>💰 הכנסות לפי יום</h3><div class="rchart">${revChart}</div></div>
+      <div class="bd glass chart-card"><h3>⏰ הזמנות לפי שעה</h3><div class="rchart">${hourChart}</div></div>
+      <div class="breakdowns">
+        ${bd('🍳 מילויים', merge('fillings'))}
+        ${bd('🍞 לחמים', merge('breads'))}
+        ${bd('➕ תוספות', merge('extras'))}
+        ${bd('🥤 שתייה', merge('drinks'))}
+        ${bd('🥫 ממרחים', merge('spreads'))}
+        ${bd('🥗 ירקות', merge('vegetables'))}
+      </div>`;
+  }
+
+  function exportCsv() {
+    if (!reportData) return;
+    const cats = [['breads', 'לחם'], ['fillings', 'מילוי'], ['spreads', 'ממרח'], ['vegetables', 'ירק'], ['extras', 'תוספת'], ['drinks', 'שתייה']];
+    const products = [];
+    for (const [cat, label] of cats) {
+      const names = new Set(reportData.days.flatMap((d) => Object.keys(d.items[cat] || {})));
+      for (const name of names) products.push([cat, `${label}: ${name}`, name]);
+    }
+    const cell = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const header = ['תאריך', 'הזמנות', 'בוטלו', 'הכנסות', 'נגבה', 'הנחות', 'סנדוויצ\'ים', 'שתייה', ...products.map((p) => p[1])];
+    const rows = reportData.days.map((d) => [
+      d.day, d.orders, d.cancelled, d.revenue, d.collected, d.discounts, d.sandwiches, d.drinks,
+      ...products.map(([cat, , name]) => (d.items[cat] || {})[name] || 0),
+    ]);
+    const csv = '\uFEFF' + [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `sandwich-report-${reportData.days[0]?.day || ''}-${reportData.days.at(-1)?.day || ''}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('הקובץ ירד ✓');
   }
 
   function render() {
@@ -445,6 +580,7 @@
     for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === name);
     for (const p of document.querySelectorAll('.tab-panel')) p.classList.toggle('hidden', p.id !== `tab-${name}`);
     if (name === 'menu') renderMenu();
+    if (name === 'reports') loadReports();
     render();
   }
 
@@ -527,11 +663,21 @@
     $('#menuEditor').addEventListener('change', (e) => {
       const t = e.target;
       if (t.id === 'sandwichPrice') return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ prices: { sandwich: Number(t.value) } }) });
+      if (t.dataset.promo) return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ promos: { [t.dataset.promo]: Number(t.value) } }) });
       const ref = t.dataset.field && itemRef(t);
       if (!ref) return;
       const value = t.dataset.field === 'available' ? t.checked : t.dataset.field === 'price' ? Number(t.value) : t.value;
       menuCall(`/api/admin/menu/${ref.cat}/${encodeURIComponent(ref.id)}`, { method: 'PATCH', body: JSON.stringify({ [t.dataset.field]: value }) });
     });
+
+    $('#reportRange').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-days]');
+      if (!b) return;
+      reportDays = Number(b.dataset.days);
+      for (const x of $('#reportRange').children) x.classList.toggle('on', x === b);
+      loadReports();
+    });
+    $('#exportCsv').addEventListener('click', exportCsv);
 
     $('#menuEditor').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.target.matches('.mname-input')) e.target.blur();

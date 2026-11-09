@@ -3,6 +3,7 @@
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const money = (n) => `${n} ₪`;
+  const minus = (n) => `<bdi dir="ltr">−${money(n)}</bdi>`;
   const timeOf = (ts) => new Date(ts).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' });
   const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date());
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -399,8 +400,94 @@
         <span class="line-price">${money(itemPrice(item) * item.qty)}</span>
       </li>`;
     }).join('');
+    renderCartPromos();
     countTo($('#submitTotal'), cartTotal(), money);
     $('#submitOrder').disabled = !cart.length;
+  }
+
+  function renderCartPromos() {
+    const t = cartTotals();
+    const comboOff = (MENU.menu.promos || {}).comboDiscount || 0;
+    const promos = [];
+    if (loyaltyState && loyaltyState.rewardReady && t.sandwiches > 0) {
+      promos.push(`<label class="promo reward ${useReward ? 'on' : ''}">
+        <input type="checkbox" id="useReward" ${useReward ? 'checked' : ''} />
+        <span class="promo-ico">🎁</span>
+        <span><b>מגיע לך סנדוויץ' חינם!</b><small>${useReward ? 'ממומש בהזמנה הזאת' : 'לחצו כדי לממש עכשיו'}</small></span>
+      </label>`);
+    }
+    if (comboOff > 0 && t.sandwiches > t.drinks && t.sandwiches - (t.reward ? 1 : 0) > t.drinks) {
+      promos.push(`<button type="button" class="promo nudge-drink" data-scroll-drinks>
+        <span class="promo-ico">🥤</span>
+        <span><b>הוסיפו שתייה וחסכו ${money(comboOff)}</b><small>קומבו: על כל סנדוויץ' + שתייה</small></span>
+        <span class="go">לשתייה</span>
+      </button>`);
+    }
+    $('#cartPromos').innerHTML = promos.join('');
+
+    const rows = [];
+    if (t.combo || t.reward) rows.push(`<div class="row"><span>סכום ביניים</span><span>${money(t.subtotal)}</span></div>`);
+    if (t.combo) rows.push(`<div class="row save"><span>🔥 הנחת קומבו</span><span>${minus(t.combo)}</span></div>`);
+    if (t.reward) rows.push(`<div class="row save"><span>🎁 סנדוויץ' חינם</span><span>${minus(t.reward)}</span></div>`);
+    if (t.combo || t.reward) rows.push(`<div class="saved-pill">חסכת ${money(t.combo + t.reward)} 🎉</div>`);
+    const box = $('#cartTotals');
+    const html = rows.join('');
+    if (box.innerHTML !== html) {
+      const hadSavings = box.querySelector('.saved-pill');
+      box.innerHTML = html;
+      const pill = box.querySelector('.saved-pill');
+      if (pill && !hadSavings) replay(pill, 'pop');
+    }
+  }
+
+  function renderComboBanner() {
+    const off = (MENU.menu.promos || {}).comboDiscount || 0;
+    const el = $('#comboBanner');
+    el.classList.toggle('hidden', off <= 0);
+    if (off > 0) el.innerHTML = `<span class="cb-ico">🔥</span><span><b>קומבו!</b> סנדוויץ' + שתייה = ${money(off)} הנחה</span>`;
+  }
+
+  // ---------- loyalty stamp card ----------
+  async function refreshLoyalty(phone) {
+    phone = String(phone || '').replace(/\D/g, '');
+    if (!/^0\d{8,9}$/.test(phone)) { loyaltyState = null; renderLoyalty(); return; }
+    try {
+      const res = await fetch(`/api/loyalty/${phone}`);
+      if (!res.ok) return;
+      const prev = loyaltyState;
+      loyaltyState = { ...(await res.json()), phone };
+      renderLoyalty(prev);
+      if (!$('#sheet').classList.contains('hidden')) { renderCartPromos(); countTo($('#submitTotal'), cartTotal(), money); }
+      renderCartBar(false);
+    } catch { /* offline */ }
+  }
+
+  function renderLoyalty(prev) {
+    const el = $('#loyaltyCard');
+    const goal = (MENU && MENU.menu.promos && MENU.menu.promos.loyaltyGoal) || 0;
+    if (!goal) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    const s = loyaltyState;
+    if (!s) {
+      el.dataset.state = 'teaser';
+      el.innerHTML = `<div class="lc-head"><span class="lc-ico">🎟️</span><div><b>${goal === 10 ? 'כל סנדוויץ\' עשירי עלינו!' : `כל ${goal} סנדוויצ'ים, אחד עלינו!`}</b><small>הכרטיסייה נפתחת אוטומטית בהזמנה הראשונה, לפי מספר הטלפון</small></div></div>`;
+      return;
+    }
+    const ready = s.rewardReady;
+    const filled = ready ? goal : s.stamps % goal;
+    el.dataset.state = ready ? 'ready' : 'progress';
+    const stamps = Array.from({ length: goal }, (_, i) => {
+      const on = i < filled;
+      const fresh = prev && prev.phone === s.phone && on && i >= (prev.rewardReady ? goal : prev.stamps % goal);
+      return `<span class="stamp ${on ? 'on' : ''} ${fresh ? 'fresh' : ''}" style="--i:${i}">${i === goal - 1 ? '🎁' : on ? '🥪' : ''}</span>`;
+    }).join('');
+    const left = goal - filled;
+    el.innerHTML = `
+      <div class="lc-head"><span class="lc-ico">🎟️</span><div>
+        <b>${ready ? 'מגיע לך סנדוויץ\' חינם! 🎉' : 'הכרטיסייה שלי'}</b>
+        <small>${ready ? 'ממומש אוטומטית בהזמנה הבאה' : `עוד ${left} ${left === 1 ? 'סנדוויץ\'' : 'סנדוויצ\'ים'} והבא עלינו`}</small>
+      </div><span class="lc-count">${filled}/${goal}</span></div>
+      <div class="stamps">${stamps}</div>`;
   }
 
   async function onCartListClick(e) {
@@ -554,8 +641,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name, phone, notes: $('#fNotes').value, etaMinutes: eta,
+            useReward: cartTotals().reward > 0 && loyaltyState.phone === phone,
             items: cart.map((i) => (i.type === 'sandwich'
-              ? { type: 'sandwich', bread: i.bread, spreads: i.spreads, vegetables: i.vegetables || [], filling: i.filling, qty: i.qty }
+              ? { type: 'sandwich', bread: i.bread, spreads: i.spreads, vegetables: i.vegetables || [], filling: i.filling, extras: i.extras || [], qty: i.qty }
               : { type: 'drink', drink: i.drink, qty: i.qty })),
           }),
         }),
@@ -566,6 +654,7 @@
         btn.classList.remove('loading');
         btn.disabled = false;
         if (data.menuChanged) await refreshMenuAfterChange();
+        if (data.loyaltyChanged) { await refreshLoyalty(phone); renderCartList(); renderCartBar(false); }
         return showErr(data.error || 'משהו השתבש, נסו שוב');
       }
     } catch {
@@ -578,6 +667,7 @@
     btn.classList.add('success');
     vibrate([20, 60, 40]);
     store.set('sc_profile', { name, phone });
+    refreshLoyalty(phone);
     const mine = myOrders();
     mine.ids.push(data.id);
     store.set('sc_orders', mine);
@@ -678,6 +768,10 @@
         vibrate([200, 100, 200, 100, 400]);
         confetti(120);
         notify('🎉', 'ההזמנה שלך מוכנה!', 'אפשר לבוא לאסוף', 4500);
+      } else if (o.status === 'picked_up' && o.stampsEarned > 0) {
+        vibrate(60);
+        notify('🎟️', `+${o.stampsEarned} ניקובים בכרטיסייה`, 'בתיאבון! 😋', 4000);
+        refreshLoyalty(store.get('sc_profile', {}).phone);
       } else if (st) {
         vibrate(60);
         notify(st.emoji, st.label, '', 3000);
@@ -715,7 +809,7 @@
   function itemLine(i) {
     if (i.type === 'drink') return `<span class="q">${i.qty}×</span> 🥤 ${esc(i.drink.name)}`;
     const parts = [i.bread.name, i.filling && i.filling.name].filter(Boolean).join(' · ');
-    const extras = [...i.spreads, ...(i.vegetables || [])].map((s) => s.name);
+    const extras = [...i.spreads, ...(i.vegetables || []), ...(i.extras || []).map((x) => ({ name: `+${x.name}` }))].map((s) => s.name);
     const small = extras.length ? ` <small>(${esc(extras.join(', '))})</small>` : '';
     return `<span class="q">${i.qty}×</span> 🥪 ${esc(parts)}${small}`;
   }
@@ -739,6 +833,8 @@
       </div>
       <div id="stPush"></div>
       <ul class="status-items">${o.items.map((i, idx) => `<li style="--i:${idx}">${itemLine(i)}</li>`).join('')}</ul>
+      ${o.discounts && o.discounts.combo ? `<div class="status-save"><span>🔥 הנחת קומבו</span><span>${minus(o.discounts.combo)}</span></div>` : ''}
+      ${o.discounts && o.discounts.reward ? `<div class="status-save"><span>🎁 סנדוויץ' חינם</span><span>${minus(o.discounts.reward)}</span></div>` : ''}
       <div class="status-total"><span>לתשלום באיסוף</span><span>${money(o.total)}</span></div>`;
   }
 
@@ -989,6 +1085,8 @@
     syncBuilder();
     renderFavorites();
     renderDrinks();
+    renderComboBanner();
+    renderLoyalty();
     renderCartBar(false);
     renderMyOrdersBtn();
   }
@@ -1005,7 +1103,7 @@
   }
 
   function bindEvents() {
-    for (const id of ['#breads', '#spreads', '#vegetables', '#fillings']) $(id).addEventListener('click', onOptionClick);
+    for (const id of ['#breads', '#spreads', '#vegetables', '#fillings', '#extras']) $(id).addEventListener('click', onOptionClick);
     $('#qtyMinus').addEventListener('click', () => { builder.qty = Math.max(1, builder.qty - 1); syncBuilder(); replay($('#qty'), 'pop'); });
     $('#qtyPlus').addEventListener('click', () => { builder.qty = Math.min(20, builder.qty + 1); syncBuilder(); replay($('#qty'), 'pop'); });
     $('#addSandwich').addEventListener('click', () => {
@@ -1030,6 +1128,25 @@
     $('#openCart').addEventListener('click', openSheet);
     $('#sheet').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
     $('#cartList').addEventListener('click', onCartListClick);
+    $('#cartPromos').addEventListener('change', (e) => {
+      if (e.target.id !== 'useReward') return;
+      useReward = e.target.checked;
+      vibrate(10);
+      renderCartPromos();
+      countTo($('#submitTotal'), cartTotal(), money);
+      renderCartBar(false);
+    });
+    $('#cartPromos').addEventListener('click', async (e) => {
+      if (!e.target.closest('[data-scroll-drinks]')) return;
+      await closeSheet();
+      $('#drinks').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+      replay($('#drinks'), 'nudge');
+    });
+    let phoneTimer;
+    $('#fPhone').addEventListener('input', (e) => {
+      clearTimeout(phoneTimer);
+      phoneTimer = setTimeout(() => refreshLoyalty(e.target.value), 500);
+    });
     $('#etaChips').addEventListener('click', (e) => {
       const chip = e.target.closest('[data-eta]');
       if (!chip) return;
@@ -1095,6 +1212,7 @@
     renderBuilderOptions();
     document.body.classList.add('ready');
     renderAll();
+    if (profile && profile.phone) refreshLoyalty(profile.phone);
 
     const mine = myOrders();
     const linked = new URLSearchParams(location.search).get('order');

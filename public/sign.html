@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>שלט QR להדפסה</title>
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;800&display=swap" rel="stylesheet" />
+  <style>
+    :root { --ink: #2b1d3a; --soft: #5d4b6e; --accent: #ff6b4a; --pink: #ff4d8d; --violet: #7c5cff; --good: #1fb57a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Rubik, system-ui, sans-serif; color: var(--ink); background: #e9e4f0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toolbar {
+      position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;
+      padding: 12px; background: rgba(255,255,255,.9); backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    .toolbar button { border: 0; border-radius: 999px; padding: 11px 22px; font: 700 16px Rubik, sans-serif; color: #fff; background: linear-gradient(135deg, var(--accent), var(--pink)); cursor: pointer; }
+    .toolbar small { color: var(--soft); }
+
+    .page {
+      width: 210mm; height: 297mm; margin: 16px auto; background: #fff; position: relative; overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,.15); page-break-after: always; break-after: page;
+    }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+
+    /* ---- poster ---- */
+    .poster { background: linear-gradient(160deg, #ffd9a8 0%, #ffb3c8 50%, #c9b8ff 100%); display: flex; flex-direction: column; align-items: center; padding: 12mm 12mm 8mm; text-align: center; }
+    .poster::before, .poster::after { content: ''; position: absolute; border-radius: 50%; background: rgba(255,255,255,.28); }
+    .poster::before { width: 120mm; height: 120mm; top: -40mm; left: -40mm; }
+    .poster::after { width: 150mm; height: 150mm; bottom: -60mm; right: -50mm; }
+    .brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 5mm; }
+    .brand img { width: 22mm; height: 22mm; border-radius: 6mm; box-shadow: 0 2mm 6mm rgba(0,0,0,.15); }
+    .brand h1 { margin: 0; font-size: 15mm; font-weight: 800; letter-spacing: -.3mm; }
+    .headline { position: relative; z-index: 1; margin: 7mm 0 2mm; font-size: 19mm; font-weight: 800; line-height: 1.05; }
+    .headline span { background: linear-gradient(90deg, var(--accent), var(--pink), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .sub { position: relative; z-index: 1; font-size: 7mm; color: var(--soft); margin: 0 0 8mm; }
+    .qr-card {
+      position: relative; z-index: 1; background: #fff; border-radius: 12mm; padding: 9mm; box-shadow: 0 4mm 14mm rgba(43,29,58,.2);
+    }
+    .qr-card img { display: block; width: 96mm; height: 96mm; }
+    .qr-card .scan {
+      position: absolute; left: 50%; bottom: -7mm; transform: translateX(-50%); white-space: nowrap;
+      background: var(--ink); color: #fff; font-weight: 800; font-size: 7mm; padding: 2.5mm 9mm; border-radius: 999px;
+    }
+    .foods { position: relative; z-index: 1; display: flex; justify-content: center; gap: 5mm; margin: 13mm 0 5mm; }
+    .foods img { width: 25mm; height: 25mm; border-radius: 50%; object-fit: cover; border: 1.6mm solid #fff; box-shadow: 0 2mm 5mm rgba(0,0,0,.15); }
+    .perks { position: relative; z-index: 1; display: flex; flex-wrap: wrap; justify-content: center; gap: 2.5mm; font-size: 4.8mm; font-weight: 600; }
+    .perks span { background: rgba(255,255,255,.75); border-radius: 999px; padding: 2mm 5mm; white-space: nowrap; }
+    .perks .pay { background: var(--good); color: #fff; }
+    .url { position: relative; z-index: 1; margin-top: auto; padding-top: 3mm; font-size: 4.6mm; color: var(--soft); direction: ltr; }
+
+    /* ---- stickers ---- */
+    .stickers { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 6mm; padding: 10mm; }
+    .sticker {
+      border: 0.6mm dashed #c9c0d6; border-radius: 8mm; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3mm;
+      background: linear-gradient(160deg, #fff4e6, #ffe6ef); text-align: center; padding: 5mm;
+    }
+    .sticker .st-top { display: flex; align-items: center; gap: 2.5mm; font-weight: 800; font-size: 5.2mm; }
+    .sticker .st-top img { width: 9mm; height: 9mm; border-radius: 2.5mm; }
+    .sticker .qr { background: #fff; border-radius: 5mm; padding: 3.5mm; box-shadow: 0 1.5mm 4mm rgba(43,29,58,.15); }
+    .sticker .qr img { display: block; width: 44mm; height: 44mm; }
+    .sticker b { font-size: 6mm; }
+    .sticker small { font-size: 4mm; color: var(--soft); }
+
+    @page { size: A4; margin: 0; }
+    @media print {
+      body { background: #fff; }
+      .toolbar { display: none; }
+      .page { margin: 0; box-shadow: none; }
+    }
+    @media screen and (max-width: 820px) {
+      .page { zoom: .45; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">🖨️ הדפסה / שמירה כ-PDF</button>
+    <small>עמוד 1: שלט A4 לעגלה · עמוד 2: 6 מדבקות קטנות לדלפק ולשולחנות</small>
+  </div>
+
+  <section class="page poster">
+    <div class="brand"><img src="/icons/icon-192.png" alt="" /><h1 class="shop">עגלת הסנדוויצ'ים</h1></div>
+    <div class="headline">סורקים <span>ומזמינים</span><br />בלי תור</div>
+    <p class="sub">בונים סנדוויץ' טרי מהנייד, ואוספים כשמוכן</p>
+    <div class="qr-card"><img src="/qr.svg" alt="QR להזמנה" /><span class="scan">📱 סורקים כאן</span></div>
+    <div class="foods">
+      <img src="/img/sabich.webp" alt="" /><img src="/img/pita.webp" alt="" /><img src="/img/shakshuka.webp" alt="" /><img src="/img/iced-coffee.webp" alt="" /><img src="/img/avocado.webp" alt="" />
+    </div>
+    <div class="perks">
+      <span>⏱️ טיימר עד שמוכן</span>
+      <span class="loyalty-perk">🎟️ כל סנדוויץ' עשירי עלינו</span>
+      <span class="pay">💛 התשלום באיסוף</span>
+    </div>
+    <div class="url"></div>
+  </section>
+
+  <section class="page stickers" id="stickers"></section>
+
+  <script>
+    const sticker = `<div class="sticker">
+      <div class="st-top"><img src="/icons/icon-192.png" alt="" /><span class="shop">עגלת הסנדוויצ'ים</span></div>
+      <div class="qr"><img src="/qr.svg" alt="QR" /></div>
+      <b>סורקים ומזמינים בלי תור</b>
+      <small>התשלום באיסוף 💛</small>
+    </div>`;
+    document.getElementById('stickers').innerHTML = sticker.repeat(6);
+    document.querySelector('.url').textContent = location.host;
+    fetch('/api/menu').then((r) => r.json()).then(({ shopName, menu }) => {
+      document.querySelectorAll('.shop').forEach((el) => { el.textContent = shopName; });
+      const goal = menu.promos && menu.promos.loyaltyGoal;
+      const perk = document.querySelector('.loyalty-perk');
+      if (!goal) perk.remove();
+      else perk.textContent = goal === 10 ? '🎟️ כל סנדוויץ\' עשירי עלינו' : `🎟️ כל ${goal} סנדוויצ'ים, אחד עלינו`;
+    }).catch(() => {});
+  </script>
+</body>
+</html>

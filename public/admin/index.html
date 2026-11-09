@@ -42,6 +42,7 @@
         <button type="button" data-tab="done" class="tab">הושלמו <span class="badge muted" id="doneCount">0</span></button>
         <button type="button" data-tab="menu" class="tab">תפריט ומלאי</button>
         <button type="button" data-tab="summary" class="tab">סיכום יומי</button>
+        <button type="button" data-tab="reports" class="tab">דוחות</button>
       </nav>
       <div class="tools">
         <span id="clock" class="clock"></span>
@@ -62,6 +63,17 @@
       <section id="tab-done" class="tab-panel hidden"><div id="doneList" class="done-list"></div></section>
       <section id="tab-menu" class="tab-panel hidden"><div id="menuEditor" class="menu-editor"></div></section>
       <section id="tab-summary" class="tab-panel hidden"><div id="summary" class="summary"></div></section>
+      <section id="tab-reports" class="tab-panel hidden">
+        <div class="report-bar glass">
+          <div id="reportRange" class="seg" role="group" aria-label="טווח">
+            <button type="button" data-days="7" class="on">7 ימים</button>
+            <button type="button" data-days="30">30 יום</button>
+            <button type="button" data-days="90">90 יום</button>
+          </div>
+          <button type="button" id="exportCsv" class="act next">⬇️ ייצוא לאקסל</button>
+        </div>
+        <div id="reports" class="summary"></div>
+      </section>
     </main>
   </div>
 
