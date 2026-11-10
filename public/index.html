@@ -42,7 +42,7 @@
       <div class="hero-float" aria-hidden="true"><span>🥖</span><span>🧀</span><span>🍅</span><span>🥑</span><span>🥚</span></div>
       <div class="hero-text">
         <h2>מה בא לך <span class="grad">היום?</span></h2>
-        <p>בונים סנדוויץ', מוסיפים שתייה, ואוספים בלי לחכות בתור</p>
+        <p>סלט, טוסט או לחמניה, שתייה, ואיסוף בלי לחכות בתור</p>
       </div>
       <button type="button" id="orderTimer" class="otimer hidden" aria-live="polite">
         <span class="ot-wave" aria-hidden="true"></span>
@@ -76,34 +76,11 @@
 
     <section class="glass card builder reveal">
       <div class="builder-head">
-        <h3>בונים סנדוויץ'</h3>
+        <h3 id="builderTitle">בונים הזמנה</h3>
         <span class="price-tag" id="sandwichPrice"></span>
       </div>
-
-      <div class="step">
-        <div class="step-title"><span class="step-num" data-step="1"><i>1</i></span> בוחרים לחם</div>
-        <div id="breads" class="options cols-3"></div>
-      </div>
-
-      <div class="step" id="step2">
-        <div class="step-title"><span class="step-num" data-step="2"><i>2</i></span> ממרחים <small>אפשר כמה</small></div>
-        <div id="spreads" class="options cols-4"></div>
-      </div>
-
-      <div class="step" id="step3">
-        <div class="step-title"><span class="step-num" data-step="3"><i>3</i></span> ירקות <small>אפשר כמה</small></div>
-        <div id="vegetables" class="options cols-4"></div>
-      </div>
-
-      <div class="step" id="step4">
-        <div class="step-title"><span class="step-num" data-step="4"><i>4</i></span> מילוי <small>לא חובה · לחיצה נוספת מבטלת</small></div>
-        <div id="fillings" class="options cols-4"></div>
-      </div>
-
-      <div class="step" id="step5">
-        <div class="step-title"><span class="step-num" data-step="5"><i>5</i></span> תוספות <small>בתוספת תשלום · אפשר כמה</small></div>
-        <div id="extras" class="options cols-4"></div>
-      </div>
+      <div id="productSwitch" class="product-switch"></div>
+      <div id="builderSteps"></div>
 
       <div class="tray-wrap">
         <div id="trayEmpty" class="tray-empty">👆 בחרו לחם ונתחיל לבנות</div>
@@ -118,11 +95,11 @@
         </div>
         <button type="button" id="addSandwich" class="btn primary shine" disabled>הוספה לסל</button>
       </div>
-      <button type="button" id="saveFav" class="btn ghost full" disabled>⭐ שמירה כסנדוויץ' קבוע</button>
+        <button type="button" id="saveFav" class="btn ghost full" disabled>⭐ שמירה כמנה קבועה</button>
     </section>
 
     <section class="reveal">
-      <h3 class="section-title">🥤 שתייה ואייס קפה</h3>
+      <h3 class="section-title">🥤 שתייה וקפה</h3>
       <div id="comboBanner" class="combo-banner hidden"></div>
       <div id="drinks" class="drinks"></div>
     </section>

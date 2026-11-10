@@ -181,7 +181,15 @@
 
   // ---------- render: board ----------
   function itemHtml(i) {
-    if (i.type === 'drink') return `${esc(i.drink.name)}`;
+    if (i.type === 'drink') return `🥤 ${esc(i.drink.name)}`;
+    if (i.type === 'food') {
+      const lines = (i.groups || []).map((g) => {
+        if (!g.items.length) return '';
+        const names = g.items.map((x) => `${esc(x.name)}${x.charged ? ` <bdi dir="ltr">+${x.charged}</bdi>` : ''}`).join(', ');
+        return `<small>${esc(g.name)}: ${names}</small>`;
+      }).join('');
+      return `${i.product.emoji || '🍽️'} <b>${esc(i.product.name)}</b>${lines}`;
+    }
     const head = [i.bread.name, i.filling ? i.filling.name : 'בלי מילוי'].map(esc).join(' · ');
     const spreads = i.spreads.length ? i.spreads.map((s) => esc(s.name)).join(', ') : 'בלי ממרחים';
     const veg = (i.vegetables || []).length ? `🥗 ${i.vegetables.map((v) => esc(v.name)).join(', ')}` : 'בלי ירקות';
@@ -214,7 +222,7 @@
     const d = o.discounts;
     if (!d || (!d.combo && !d.reward)) return '';
     return `<div class="odisc">
-      ${d.reward ? `<span class="reward">🎁 סנדוויץ' חינם (כרטיסייה) <bdi dir="ltr">−${money(d.reward)}</bdi></span>` : ''}
+      ${d.reward ? `<span class="reward">🎁 מנה חינם (כרטיסייה) <bdi dir="ltr">−${money(d.reward)}</bdi></span>` : ''}
       ${d.combo ? `<span>🔥 קומבו <bdi dir="ltr">−${money(d.combo)}</bdi></span>` : ''}
     </div>`;
   }
@@ -305,59 +313,54 @@
     const done = [...orders.values()].filter((o) => !ACTIVE.includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
     $('#doneList').innerHTML = done.map((o) => `<div class="drow" data-id="${o.id}">
       <span class="onum">#${o.number}</span>
-      <div class="ddesc"><b>${esc(o.name)}</b> · ${money(o.total)}<br><small>${o.items.map((i) => `${i.qty}× ${i.type === 'drink' ? esc(i.drink.name) : esc(i.bread.name) + (i.filling ? ' · ' + esc(i.filling.name) : '')}`).join(' | ')}</small></div>
+      <div class="ddesc"><b>${esc(o.name)}</b> · ${money(o.total)}<br><small>${o.items.map((i) => `${i.qty}× ${i.type === 'drink' ? esc(i.drink.name) : esc(i.type === 'food' ? i.product.name : i.bread.name)}`).join(' | ')}</small></div>
       <span class="tag ${o.status}">${STATUS_LABEL[o.status]} ${timeOf(o.updatedAt)}</span>
       <button type="button" class="act minor" data-restore>↩ החזרה</button>
     </div>`).join('') || '<div class="empty">עוד אין הזמנות שהושלמו היום</div>';
   }
 
   // ---------- render: menu ----------
-  const MENU_CATS = [
-    ['breads', '🍞 לחמים'],
-    ['spreads', '🥫 ממרחים'],
-    ['vegetables', '🥗 ירקות'],
-    ['fillings', '🍳 מילויים'],
-    ['extras', '➕ תוספות בתשלום'],
-    ['drinks', '🥤 שתייה'],
-  ];
-  const PRICED = new Set(['extras', 'drinks']);
-
   function renderMenu() {
     if (!menu) return;
     const m = menu.menu;
-    const group = (cat, title) => {
-      const withPrice = PRICED.has(cat);
-      return `<div class="mgroup glass" data-cat="${cat}"><h3>${title} <span class="mcount">${(m[cat] || []).length}</span></h3><div class="mitems">
-      ${(m[cat] || []).map((x) => `<div class="mitem ${x.available ? '' : 'off'}" data-id="${esc(x.id)}">
+    const group = (cat, title, items, withPrice, extraNote = '') => `<div class="mgroup glass" data-cat="${cat}"><h3>${title} <span class="mcount">${items.length}</span></h3>
+      ${extraNote}
+      <div class="mitems">
+      ${items.map((x) => `<div class="mitem ${x.available ? '' : 'off'}" data-id="${esc(x.id)}">
         <button type="button" class="mimg" data-upload title="החלפת תמונה"><img src="${esc(x.img)}" alt="" /><span class="cam">📷</span></button>
-        <input class="mname-input" value="${esc(x.name)}" maxlength="30" data-field="name" aria-label="שם" />
+        <input class="mname-input" value="${esc(x.name)}" maxlength="40" data-field="name" aria-label="שם" />
         ${withPrice ? `<input class="price-input" type="number" min="0" step="0.5" value="${x.price}" data-field="price" aria-label="מחיר" />` : ''}
         <label class="switch" title="זמין / אזל"><input type="checkbox" ${x.available ? 'checked' : ''} data-field="available" /><span></span></label>
         <button type="button" class="mdel" data-delete title="מחיקה">🗑</button>
       </div>`).join('')}
       <form class="madd" data-add="${cat}">
-        <input name="name" placeholder="+ פריט חדש" maxlength="30" required />
+        <input name="name" placeholder="+ פריט חדש" maxlength="40" required />
         ${withPrice ? '<input name="price" class="price-input" type="number" min="0" step="0.5" placeholder="₪" required />' : ''}
         <button type="submit" class="act next">הוספה</button>
       </form>
     </div></div>`;
-    };
     const promos = m.promos || { comboDiscount: 0, loyaltyGoal: 0 };
+    const productBlocks = (m.products || []).map((p) => p.groups.map((g) => {
+      const note = g.extraPrice > 0
+        ? `<div class="setting"><span class="s-ico">➕</span><div><b>מחיר תוספת</b><small>${g.max ? `עד ${g.max}` : 'בלי הגבלה'}</small></div><label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${g.extraPrice}" data-group-extra="${esc(p.id)}__${esc(g.id)}" aria-label="מחיר תוספת" /> ₪</label></div>`
+        : '';
+      return group(`${p.id}__${g.id}`, `${p.emoji || ''} ${esc(p.name)} · ${esc(g.name)}`, g.items, Boolean(g.pricedBase), note);
+    }).join('')).join('');
+    const drinkBlocks = (m.drinkGroups || []).map((g) => {
+      const block = group('drinks', `🥤 ${esc(g.name)}`, (m.drinks || []).filter((d) => d.group === g.id), true);
+      return block.replace('data-add="drinks"', `data-add="drinks" data-group="${esc(g.id)}"`);
+    }).join('');
     $('#menuEditor').innerHTML = `
       <div class="mgroup glass settings">
-        <div class="setting">
-          <span class="s-ico">💰</span>
-          <div><b>מחיר סנדוויץ'</b><small>כולל לחם, ממרחים, ירקות ומילוי</small></div>
-          <label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${m.prices.sandwich}" id="sandwichPrice" aria-label="מחיר סנדוויץ'" /> ₪</label>
-        </div>
+        ${ (m.products || []).filter((p) => p.price != null).map((p) => `<div class="setting"><span class="s-ico">${p.emoji || '💰'}</span><div><b>מחיר ${esc(p.name)}</b><small>מחיר בסיס, לפני תוספות</small></div><label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${p.price}" data-product-price="${esc(p.id)}" aria-label="מחיר ${esc(p.name)}" /> ₪</label></div>`).join('') }
         <div class="setting">
           <span class="s-ico">🔥</span>
-          <div><b>הנחת קומבו</b><small>הנחה על כל זוג סנדוויץ' + שתייה · 0 = כבוי</small></div>
+          <div><b>הנחת קומבו</b><small>הנחה על כל זוג מנה + שתייה · 0 = כבוי</small></div>
           <label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${promos.comboDiscount}" data-promo="comboDiscount" aria-label="הנחת קומבו" /> ₪</label>
         </div>
         <div class="setting">
           <span class="s-ico">🎟️</span>
-          <div><b>כרטיסיית ניקובים</b><small>כמה סנדוויצ'ים עד סנדוויץ' חינם · 0 = כבוי</small></div>
+          <div><b>כרטיסיית ניקובים</b><small>כמה מנות עד מנה חינם · 0 = כבוי</small></div>
           <label class="s-input"><input class="price-input" type="number" min="0" max="50" step="1" value="${promos.loyaltyGoal}" data-promo="loyaltyGoal" aria-label="יעד כרטיסייה" /></label>
         </div>
         <a class="setting link" href="/sign.html" target="_blank" rel="noopener">
@@ -367,7 +370,8 @@
         </a>
         <div class="mhelp">לחיצה על תמונה מחליפה אותה · עריכת שם נשמרת ביציאה מהשדה · מתג כבוי = "אזל" אצל הלקוחות.</div>
       </div>
-      ${MENU_CATS.map(([cat, title]) => group(cat, title)).join('')}`;
+      ${productBlocks}
+      ${drinkBlocks}`;
   }
 
   async function menuCall(path, opts, okMsg = 'נשמר ✓') {
@@ -428,18 +432,26 @@
     const valid = all.filter((o) => o.status !== 'cancelled');
     const collected = all.filter((o) => o.status === 'picked_up').reduce((s, o) => s + o.total, 0);
     const expected = valid.reduce((s, o) => s + o.total, 0);
-    const counts = { breads: {}, spreads: {}, vegetables: {}, fillings: {}, extras: {}, drinks: {} };
+    const counts = {};
+    const bump = (cat, name, qty) => {
+      if (!counts[cat]) counts[cat] = {};
+      counts[cat][name] = (counts[cat][name] || 0) + qty;
+    };
     let sandwiches = 0;
     for (const o of valid) {
       for (const i of o.items) {
-        if (i.type === 'drink') { counts.drinks[i.drink.name] = (counts.drinks[i.drink.name] || 0) + i.qty; continue; }
+        if (i.type === 'drink') { bump('drinks', i.drink.name, i.qty); continue; }
         sandwiches += i.qty;
-        counts.breads[i.bread.name] = (counts.breads[i.bread.name] || 0) + i.qty;
-        const f = i.filling ? i.filling.name : 'בלי מילוי';
-        counts.fillings[f] = (counts.fillings[f] || 0) + i.qty;
-        for (const s of i.spreads) counts.spreads[s.name] = (counts.spreads[s.name] || 0) + i.qty;
-        for (const v of i.vegetables || []) counts.vegetables[v.name] = (counts.vegetables[v.name] || 0) + i.qty;
-        for (const x of i.extras || []) counts.extras[x.name] = (counts.extras[x.name] || 0) + i.qty;
+        if (i.type === 'food') {
+          bump('products', i.product.name, i.qty);
+          for (const g of i.groups || []) for (const it of g.items) bump(g.id, it.name, i.qty);
+          continue;
+        }
+        bump('breads', i.bread.name, i.qty);
+        bump('fillings', i.filling ? i.filling.name : 'בלי מילוי', i.qty);
+        for (const s of i.spreads) bump('spreads', s.name, i.qty);
+        for (const v of i.vegetables || []) bump('vegetables', v.name, i.qty);
+        for (const x of i.extras || []) bump('extras', x.name, i.qty);
       }
     }
     const bd = (title, obj) => {
@@ -450,18 +462,20 @@
     $('#summary').innerHTML = `
       <div class="stats">
         <div class="stat glass"><b>${valid.length}</b><span>הזמנות היום</span></div>
-        <div class="stat glass"><b>${sandwiches}</b><span>סנדוויצ'ים</span></div>
+        <div class="stat glass"><b>${sandwiches}</b><span>מנות</span></div>
         <div class="stat glass"><b>${money(collected)}</b><span>נגבה (נאספו)</span></div>
         <div class="stat glass"><b>${money(expected)}</b><span>סה"כ צפוי</span></div>
         <div class="stat glass"><b>${all.length - valid.length}</b><span>בוטלו</span></div>
       </div>
       <div class="breakdowns">
-        ${bd('🍞 לחמים', counts.breads)}
-        ${bd('🍳 מילויים', counts.fillings)}
-        ${bd('🥫 ממרחים', counts.spreads)}
-        ${bd('🥗 ירקות', counts.vegetables)}
-        ${bd('➕ תוספות', counts.extras)}
-        ${bd('🥤 שתייה', counts.drinks)}
+        ${bd('🍽️ מנות', counts.products || {})}
+        ${bd('🍞 לחמים', counts.breads || {})}
+        ${bd('🍳 סוג', counts.fillings || {})}
+        ${bd('🥫 ממרחים', counts.spreads || {})}
+        ${bd('🥗 ירקות', counts.vegetables || {})}
+        ${bd('🫙 רטבים', counts.sauces || {})}
+        ${bd('➕ תוספות', counts.addons || {})}
+        ${bd('🥤 שתייה', counts.drinks || {})}
       </div>`;
   }
 
@@ -662,7 +676,11 @@
 
     $('#menuEditor').addEventListener('change', (e) => {
       const t = e.target;
-      if (t.id === 'sandwichPrice') return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ prices: { sandwich: Number(t.value) } }) });
+      if (t.dataset.productPrice) return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ products: [{ id: t.dataset.productPrice, price: Number(t.value) }] }) });
+      if (t.dataset.groupExtra) {
+        const [product, id] = t.dataset.groupExtra.split('__');
+        return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ groups: [{ product, id, extraPrice: Number(t.value) }] }) });
+      }
       if (t.dataset.promo) return menuCall('/api/admin/menu', { method: 'PUT', body: JSON.stringify({ promos: { [t.dataset.promo]: Number(t.value) } }) });
       const ref = t.dataset.field && itemRef(t);
       if (!ref) return;
@@ -707,6 +725,7 @@
       if (!form) return;
       const body = { name: form.name.value };
       if (form.price) body.price = Number(form.price.value);
+      if (form.dataset.group) body.group = form.dataset.group;
       const data = await menuCall(`/api/admin/menu/${form.dataset.add}`, { method: 'POST', body: JSON.stringify(body) }, 'נוסף! לחצו על התמונה כדי להוסיף תמונה 📷');
       if (data && data.item && !reduceMotion) {
         const tile = document.querySelector(`.mitem[data-id="${CSS.escape(data.item.id)}"]`);

@@ -39,32 +39,16 @@ function writeJson(file, data) {
 const menuFile = path.join(DATA_DIR, 'menu.json');
 const ordersFile = (day) => path.join(DATA_DIR, `orders-${day}.json`);
 
-const CATEGORIES = ['breads', 'spreads', 'vegetables', 'fillings', 'extras', 'drinks'];
-const PRICED = new Set(['extras', 'drinks']);
 const uploadsDir = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 function loadMenu() {
   const saved = readJson(menuFile, null);
   const menu = structuredClone(defaultMenu);
-  if (!saved) return menu;
-  if (saved.version === 2) {
-    for (const cat of CATEGORIES) if (!Array.isArray(saved[cat])) saved[cat] = menu[cat];
-    if (!saved.prices) saved.prices = menu.prices;
-    saved.promos = { ...menu.promos, ...(saved.promos || {}) };
-    return saved;
-  }
-  // Legacy file only stored availability/prices: overlay them onto the default catalog.
-  if (saved.prices && Number.isFinite(saved.prices.sandwich)) menu.prices.sandwich = saved.prices.sandwich;
-  for (const cat of CATEGORIES) {
-    for (const item of menu[cat]) {
-      const s = (saved[cat] || []).find((x) => x.id === item.id);
-      if (!s) continue;
-      if (typeof s.available === 'boolean') item.available = s.available;
-      if (cat === 'drinks' && Number.isFinite(s.price)) item.price = s.price;
-    }
-  }
-  return menu;
+  if (!saved || saved.version !== 3 || !Array.isArray(saved.products) || !Array.isArray(saved.drinks)) return menu;
+  saved.promos = { ...menu.promos, ...(saved.promos || {}) };
+  if (!Array.isArray(saved.drinkGroups)) saved.drinkGroups = menu.drinkGroups;
+  return saved;
 }
 
 let menu = loadMenu();
@@ -90,9 +74,12 @@ const hourOf = (ts) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourC
 
 function summarizeDay(dayState) {
   const valid = dayState.orders.filter((o) => o.status !== 'cancelled');
-  const items = { breads: {}, spreads: {}, vegetables: {}, fillings: {}, extras: {}, drinks: {} };
+  const items = {};
   const hours = {};
-  const add = (cat, name, qty) => { items[cat][name] = (items[cat][name] || 0) + qty; };
+  const add = (cat, name, qty) => {
+    if (!items[cat]) items[cat] = {};
+    items[cat][name] = (items[cat][name] || 0) + qty;
+  };
   let sandwiches = 0;
   let drinks = 0;
   for (const o of valid) {
@@ -101,6 +88,11 @@ function summarizeDay(dayState) {
     for (const i of o.items) {
       if (i.type === 'drink') { drinks += i.qty; add('drinks', i.drink.name, i.qty); continue; }
       sandwiches += i.qty;
+      if (i.type === 'food') {
+        add('products', i.product.name, i.qty);
+        for (const g of i.groups || []) for (const it of g.items) add(g.id, it.name, i.qty);
+        continue;
+      }
       add('breads', i.bread.name, i.qty);
       add('fillings', i.filling ? i.filling.name : 'בלי מילוי', i.qty);
       for (const s of i.spreads) add('spreads', s.name, i.qty);
@@ -174,7 +166,7 @@ function addStamps(phone, delta) {
   saveLoyalty();
 }
 
-const sandwichCount = (o) => o.items.reduce((n, i) => n + (i.type === 'sandwich' ? i.qty : 0), 0);
+const sandwichCount = (o) => o.items.reduce((n, i) => n + (i.type === 'food' || i.type === 'sandwich' ? i.qty : 0), 0);
 
 // Stamps are earned on pickup and the free sandwich is refunded on cancel, so status flips stay consistent.
 function syncLoyalty(order, prevStatus) {
@@ -347,9 +339,46 @@ function cleanText(v, max) {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 }
 
-function findAvailable(cat, id) {
-  const item = menu[cat].find((x) => x.id === id);
-  return item && item.available ? item : null;
+function buildFood(raw, qty) {
+  const product = menu.products.find((p) => p.id === raw.product);
+  if (!product) throw new Error('המנה שנבחרה לא בתפריט');
+  const picks = raw.picks && typeof raw.picks === 'object' ? raw.picks : {};
+  const groups = [];
+  let price = Number(product.price) || 0;
+  let basePrice = Number(product.price) || 0;
+  for (const g of product.groups) {
+    const ids = Array.isArray(picks[g.id]) ? [...new Set(picks[g.id].filter((id) => typeof id === 'string'))] : [];
+    if (g.mode === 'single' && ids.length > 1) throw new Error(`אפשר לבחור רק ${g.name} אחד`);
+    if (ids.length < (g.min || 0)) throw new Error(`חסרה בחירה: ${g.name}`);
+    if (g.max != null && ids.length > g.max) throw new Error(`אפשר לבחור עד ${g.max} ב${g.name}`);
+    const items = ids.map((id) => {
+      const item = g.items.find((x) => x.id === id);
+      if (!item || !item.available) throw new Error(`פריט לא זמין: ${g.name}`);
+      return { id: item.id, name: item.name };
+    });
+    if (g.pricedBase) {
+      if (items.length !== 1) throw new Error(`צריך לבחור ${g.name}`);
+      const chosen = g.items.find((x) => x.id === items[0].id);
+      price += chosen.price || 0;
+      basePrice = chosen.price || 0;
+    } else if (g.extraPrice > 0) {
+      const free = g.included || 0;
+      price += Math.max(0, items.length - free) * g.extraPrice;
+      items.forEach((it, i) => { it.charged = i >= free ? g.extraPrice : 0; });
+    }
+    groups.push({ id: g.id, name: g.name, items });
+  }
+  price = Math.round(price * 2) / 2;
+  return {
+    type: 'food',
+    product: { id: product.id, name: product.name, emoji: product.emoji || '' },
+    groups,
+    basePrice,
+    qty,
+    unitPrice: price,
+    lineTotal: price * qty,
+    done: false,
+  };
 }
 
 function buildItems(rawItems) {
@@ -358,52 +387,10 @@ function buildItems(rawItems) {
   return rawItems.map((raw) => {
     const qty = Number.parseInt(raw && raw.qty, 10);
     if (!(qty >= 1 && qty <= 20)) throw new Error('כמות לא תקינה');
-
-    if (raw.type === 'sandwich') {
-      const bread = findAvailable('breads', raw.bread);
-      if (!bread) throw new Error('סוג הלחם שנבחר לא זמין כרגע');
-      const spreadIds = Array.isArray(raw.spreads) ? [...new Set(raw.spreads)] : [];
-      const spreads = spreadIds.map((id) => {
-        const s = findAvailable('spreads', id);
-        if (!s) throw new Error('אחד הממרחים שנבחרו לא זמין כרגע');
-        return { id: s.id, name: s.name };
-      });
-      const vegIds = Array.isArray(raw.vegetables) ? [...new Set(raw.vegetables)] : [];
-      const vegetables = vegIds.map((id) => {
-        const v = findAvailable('vegetables', id);
-        if (!v) throw new Error('אחד הירקות שנבחרו לא זמין כרגע');
-        return { id: v.id, name: v.name };
-      });
-      let filling = null;
-      if (raw.filling) {
-        const f = findAvailable('fillings', raw.filling);
-        if (!f) throw new Error('המילוי שנבחר לא זמין כרגע');
-        filling = { id: f.id, name: f.name };
-      }
-      const extraIds = Array.isArray(raw.extras) ? [...new Set(raw.extras)] : [];
-      const extras = extraIds.map((id) => {
-        const x = findAvailable('extras', id);
-        if (!x) throw new Error('אחת התוספות שנבחרו לא זמינה כרגע');
-        return { id: x.id, name: x.name, price: x.price };
-      });
-      const unitPrice = menu.prices.sandwich + extras.reduce((n, x) => n + x.price, 0);
-      return {
-        type: 'sandwich',
-        bread: { id: bread.id, name: bread.name },
-        spreads,
-        vegetables,
-        filling,
-        extras,
-        qty,
-        unitPrice,
-        lineTotal: unitPrice * qty,
-        done: false,
-      };
-    }
-
+    if (raw.type === 'food') return buildFood(raw, qty);
     if (raw.type === 'drink') {
-      const d = findAvailable('drinks', raw.drink);
-      if (!d) throw new Error('המשקה שנבחר לא זמין כרגע');
+      const d = menu.drinks.find((x) => x.id === raw.drink);
+      if (!d || !d.available) throw new Error('המשקה שנבחר לא זמין כרגע');
       return {
         type: 'drink',
         drink: { id: d.id, name: d.name },
@@ -413,7 +400,6 @@ function buildItems(rawItems) {
         done: false,
       };
     }
-
     throw new Error('פריט לא מוכר');
   });
 }
@@ -470,14 +456,16 @@ app.post('/api/orders', rateLimiter(30, 10 * 60 * 1000), (req, res) => {
 
   const now = Date.now();
   const subtotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
-  const sandwiches = items.reduce((n, i) => n + (i.type === 'sandwich' ? i.qty : 0), 0);
+  const sandwiches = items.reduce((n, i) => n + (i.type === 'food' ? i.qty : 0), 0);
   const drinks = items.reduce((n, i) => n + (i.type === 'drink' ? i.qty : 0), 0);
   const card = loyaltyView(phone);
+  const bases = items.filter((i) => i.type === 'food').map((i) => i.basePrice);
+  const rewardAmount = bases.length ? Math.min(...bases) : 0;
   const reward = body.useReward === true && card.rewardReady && sandwiches > 0
-    ? { stamps: card.goal, amount: menu.prices.sandwich, refunded: false }
+    ? { stamps: card.goal, amount: rewardAmount, refunded: false }
     : null;
   if (body.useReward === true && !reward) {
-    return res.status(400).json({ error: 'הסנדוויץ\' החינם לא זמין כרגע. עדכנו את הסל ונסו שוב', loyaltyChanged: true });
+    return res.status(400).json({ error: 'המנה החינמית לא זמינה כרגע. עדכנו את הסל ונסו שוב', loyaltyChanged: true });
   }
   const combo = Math.min(sandwiches - (reward ? 1 : 0), drinks) * menu.promos.comboDiscount;
   const discounts = { combo, reward: reward ? reward.amount : 0 };
@@ -603,41 +591,47 @@ app.patch('/api/admin/orders/:id/items/:index', requireAdmin, (req, res) => {
 app.put('/api/admin/menu', requireAdmin, (req, res) => {
   const body = req.body || {};
   const next = structuredClone(menu);
-  const sandwichPrice = Number(body.prices && body.prices.sandwich);
-  if (Number.isFinite(sandwichPrice) && sandwichPrice >= 0 && sandwichPrice <= 1000) {
-    next.prices.sandwich = sandwichPrice;
-  }
   const promos = body.promos || {};
   const combo = parsePrice(promos.comboDiscount);
   if ('comboDiscount' in promos && combo !== null) next.promos.comboDiscount = combo;
   const goal = Number.parseInt(promos.loyaltyGoal, 10);
   if ('loyaltyGoal' in promos && goal >= 0 && goal <= 50) next.promos.loyaltyGoal = goal;
-  for (const cat of CATEGORIES) {
-    for (const incoming of Array.isArray(body[cat]) ? body[cat] : []) {
-      const item = next[cat].find((x) => x.id === incoming.id);
-      if (!item) continue;
-      if (typeof incoming.available === 'boolean') item.available = incoming.available;
-      const price = parsePrice(incoming.price);
-      if (PRICED.has(cat) && price !== null) item.price = price;
-    }
+  for (const incoming of Array.isArray(body.products) ? body.products : []) {
+    const product = next.products.find((p) => p.id === incoming.id);
+    const price = parsePrice(incoming.price);
+    if (product && product.price != null && price !== null) product.price = price;
+  }
+  for (const incoming of Array.isArray(body.groups) ? body.groups : []) {
+    const product = next.products.find((p) => p.id === incoming.product);
+    const group = product && product.groups.find((g) => g.id === incoming.id);
+    const price = parsePrice(incoming.extraPrice);
+    if (group && price !== null) group.extraPrice = price;
   }
   saveMenu(next);
   res.json(menu);
 });
 
 function saveMenu(next) {
-  next.version = 2;
+  next.version = 3;
   menu = next;
   writeJson(menuFile, menu);
   broadcastAdmin('menu', menu);
 }
 
+function locate(cat) {
+  if (cat === 'drinks') return { list: menu.drinks, priced: true };
+  const [pid, gid] = String(cat || '').split('__');
+  const product = menu.products.find((p) => p.id === pid);
+  const group = product && product.groups.find((g) => g.id === gid);
+  if (!group) return null;
+  return { list: group.items, priced: Boolean(group.pricedBase), product, group };
+}
+
 function menuItem(req, res) {
-  const { cat, id } = req.params;
-  if (!CATEGORIES.includes(cat)) { res.status(404).json({ error: 'קטגוריה לא קיימת' }); return null; }
-  const item = menu[cat].find((x) => x.id === id);
+  const spot = locate(req.params.cat);
+  const item = spot && spot.list.find((x) => x.id === req.params.id);
   if (!item) { res.status(404).json({ error: 'הפריט לא נמצא' }); return null; }
-  return item;
+  return { ...spot, item };
 }
 
 function removeUpload(img) {
@@ -652,36 +646,50 @@ function parsePrice(v) {
 }
 
 app.post('/api/admin/menu/:cat', requireAdmin, (req, res) => {
-  const { cat } = req.params;
-  if (!CATEGORIES.includes(cat)) return res.status(404).json({ error: 'קטגוריה לא קיימת' });
-  const name = cleanText(req.body && req.body.name, 30);
+  const spot = locate(req.params.cat);
+  if (!spot) return res.status(404).json({ error: 'קטגוריה לא קיימת' });
+  const name = cleanText(req.body && req.body.name, 40);
   if (!name) return res.status(400).json({ error: 'נא לתת שם לפריט' });
-  if (menu[cat].length >= 40) return res.status(400).json({ error: 'יותר מדי פריטים בקטגוריה' });
-  const item = { id: `${cat.slice(0, 3)}-${crypto.randomBytes(4).toString('hex')}`, name, img: '/img/placeholder.svg', available: true };
-  if (PRICED.has(cat)) {
-    const price = parsePrice(req.body.price);
+  if (spot.list.length >= 40) return res.status(400).json({ error: 'יותר מדי פריטים בקטגוריה' });
+  const item = { id: `i-${crypto.randomBytes(3).toString('hex')}`, name, img: '/img/placeholder.svg', available: true };
+  if (req.params.cat === 'drinks') {
+    const sample = spot.list[0];
+    item.group = (req.body && req.body.group) || (sample && sample.group) || 'hot';
+  }
+  if (spot.priced) {
+    const price = parsePrice(req.body && req.body.price);
     if (price === null) return res.status(400).json({ error: 'נא להזין מחיר' });
     item.price = price;
   }
   const next = structuredClone(menu);
-  next[cat].push(item);
+  const dest = locateOn(next, req.params.cat);
+  dest.list.push(item);
   saveMenu(next);
   res.status(201).json({ item, menu });
 });
 
+function locateOn(source, cat) {
+  if (cat === 'drinks') return { list: source.drinks, priced: true };
+  const [pid, gid] = String(cat || '').split('__');
+  const product = source.products.find((p) => p.id === pid);
+  const group = product && product.groups.find((g) => g.id === gid);
+  if (!group) return null;
+  return { list: group.items, priced: Boolean(group.pricedBase), product, group };
+}
+
 app.patch('/api/admin/menu/:cat/:id', requireAdmin, (req, res) => {
-  if (!menuItem(req, res)) return;
-  const { cat, id } = req.params;
+  const spot = menuItem(req, res);
+  if (!spot) return;
   const body = req.body || {};
   const next = structuredClone(menu);
-  const item = next[cat].find((x) => x.id === id);
+  const item = locateOn(next, req.params.cat).list.find((x) => x.id === req.params.id);
   if ('name' in body) {
-    const name = cleanText(body.name, 30);
+    const name = cleanText(body.name, 40);
     if (!name) return res.status(400).json({ error: 'השם לא יכול להיות ריק' });
     item.name = name;
   }
   if (typeof body.available === 'boolean') item.available = body.available;
-  if (PRICED.has(cat) && 'price' in body) {
+  if (spot.priced && 'price' in body) {
     const price = parsePrice(body.price);
     if (price === null) return res.status(400).json({ error: 'מחיר לא תקין' });
     item.price = price;
@@ -691,14 +699,16 @@ app.patch('/api/admin/menu/:cat/:id', requireAdmin, (req, res) => {
 });
 
 app.delete('/api/admin/menu/:cat/:id', requireAdmin, (req, res) => {
-  const item = menuItem(req, res);
-  if (!item) return;
-  const { cat, id } = req.params;
-  if (cat === 'breads' && menu.breads.length === 1) return res.status(400).json({ error: 'חייב להישאר לפחות סוג לחם אחד' });
+  const spot = menuItem(req, res);
+  if (!spot) return;
+  if (spot.group && spot.group.pricedBase && spot.group.items.length === 1) {
+    return res.status(400).json({ error: 'חייב להישאר לפחות סוג לחם אחד' });
+  }
   const next = structuredClone(menu);
-  next[cat] = next[cat].filter((x) => x.id !== id);
+  const dest = locateOn(next, req.params.cat);
+  dest.list.splice(dest.list.findIndex((x) => x.id === req.params.id), 1);
   saveMenu(next);
-  removeUpload(item.img);
+  removeUpload(spot.item.img);
   res.json(menu);
 });
 
@@ -713,18 +723,18 @@ app.post(
   requireAdmin,
   express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '4mb' }),
   (req, res) => {
-    const item = menuItem(req, res);
-    if (!item) return;
+    const spot = menuItem(req, res);
+    if (!spot) return;
     const buf = req.body;
     const type = Buffer.isBuffer(buf) && buf.length > 12 && IMAGE_TYPES.find((t) => t.test(buf));
     if (!type) return res.status(400).json({ error: 'הקובץ אינו תמונה נתמכת (JPG / PNG / WEBP)' });
-    const file = `${item.id}-${Date.now().toString(36)}.${type.ext}`;
+    const file = `${spot.item.id}-${Date.now().toString(36)}.${type.ext}`;
     fs.writeFileSync(path.join(uploadsDir, file), buf);
     const { cat, id } = req.params;
     const next = structuredClone(menu);
-    next[cat].find((x) => x.id === id).img = `/uploads/${file}`;
+    locateOn(next, cat).list.find((x) => x.id === id).img = `/uploads/${file}`;
     saveMenu(next);
-    removeUpload(item.img);
+    removeUpload(spot.item.img);
     res.json(menu);
   },
 );

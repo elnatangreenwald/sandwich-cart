@@ -248,6 +248,13 @@ main { max-width: 640px; margin: 0 auto; padding: 8px 14px calc(120px + var(--sa
   padding: 5px 12px; border-radius: 999px; font-weight: 700; font-size: 15px;
   box-shadow: 0 4px 12px rgba(255, 107, 74, .4);
 }
+.product-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.product-switch button {
+  border: 2px solid transparent; border-radius: 16px; background: rgba(255, 255, 255, .55);
+  padding: 10px 4px 8px; font-weight: 800; line-height: 1.15;
+}
+.product-switch button[aria-pressed="true"] { border-color: var(--accent); background: #fff; box-shadow: 0 6px 16px rgba(255, 107, 74, .18); }
+.product-switch small { display: block; margin-top: 3px; font-weight: 700; color: var(--accent); font-size: 12px; }
 .step { margin-top: 16px; padding: 2px; }
 .step-title { font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .step-title small { font-weight: 400; color: var(--ink-soft); font-size: 12.5px; }
@@ -417,6 +424,8 @@ body.ready .opt { animation: optIn .5s var(--spring) backwards; animation-delay:
 
 /* ---------- drinks ---------- */
 .drinks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.drink-group { grid-column: 1 / -1; margin: 10px 4px 0; font-size: 16px; font-weight: 800; }
+.drink-name { font-size: 14.5px; line-height: 1.25; }
 .drink {
   border-radius: 20px; padding: 10px; display: flex; flex-direction: column; gap: 8px; align-items: center;
   position: relative; transition: box-shadow .3s, transform .3s var(--spring);
