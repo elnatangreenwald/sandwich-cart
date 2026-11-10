@@ -96,8 +96,8 @@
   function groupHint(g) {
     const parts = [];
     if (g.mode === 'single') parts.push(g.min ? 'חובה · בחירה אחת' : 'בחירה אחת');
-    else if (g.max) parts.push(`עד ${g.max}`);
-    else parts.push('אפשר כמה');
+    else if (g.max) parts.push(g.min ? `חובה · עד ${g.max}` : `עד ${g.max}`);
+    else parts.push(g.min ? 'חובה · אפשר כמה' : 'אפשר כמה');
     if (g.extraPrice > 0 && (g.included || 0) > 0) parts.push(`הראשון כלול · כל נוספת ${g.extraPrice} ₪`);
     else if (g.extraPrice > 0) parts.push(`${g.extraPrice} ₪`);
     return parts.join(' · ');

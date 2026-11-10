@@ -163,9 +163,9 @@ module.exports = {
           id: 'fillings',
           name: 'סוג',
           mode: 'multi',
-          min: 0,
-          max: 1,
-          included: 0,
+          min: 1,
+          max: null,
+          included: 1,
           extraPrice: 3,
           items: [
             opt('bulgarian', 'בולגרית'),
