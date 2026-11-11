@@ -1212,12 +1212,6 @@
   }
 
   function bindEvents() {
-    // Header scroll effect
-    const top = $('.top');
-    window.addEventListener('scroll', () => {
-      top.classList.toggle('scrolled', window.scrollY > 20);
-    }, { passive: true });
-
     $('#builderSteps').addEventListener('click', onOptionClick);
     $('#productSwitch').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-product]');
