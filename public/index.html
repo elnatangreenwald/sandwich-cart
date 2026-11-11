@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#ff6b4a" />
+  <meta name="theme-color" content="#F89913" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -20,7 +20,7 @@
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -32,8 +32,8 @@
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span>
   </div>
 
-  <header class="top glass">
-    <div class="brand"><img class="logo" src="/icons/icon-192.png" alt="" /><h1 id="shopName">עגלת הסנדוויצ'ים</h1></div>
+  <header class="top">
+    <div class="brand"><img class="logo" src="/img/logo.png" alt="TEN-WICH" /><h1 id="shopName" class="hidden">TEN-WICH</h1></div>
     <button id="myOrdersBtn" class="pill hidden" type="button"><span class="live-dot"></span> ההזמנה שלי</button>
   </header>
 
@@ -42,14 +42,14 @@
       <div class="hero-float" aria-hidden="true"><span>🥖</span><span>🧀</span><span>🍅</span><span>🥑</span><span>🥚</span></div>
       <div class="hero-text">
         <h2>מה בא לך <span class="grad">היום?</span></h2>
-        <p>סלט, טוסט או לחמניה, שתייה, ואיסוף בלי לחכות בתור</p>
+        <p>סנדוויץ׳, סלט או טוסט · שתייה · ואיסוף בלי לחכות בתור</p>
       </div>
       <button type="button" id="orderTimer" class="otimer hidden" aria-live="polite">
         <span class="ot-wave" aria-hidden="true"></span>
         <svg class="ot-ring" viewBox="0 0 120 120" aria-hidden="true">
           <defs>
             <linearGradient id="otGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#ff6b4a" /><stop offset=".55" stop-color="#ff4d8d" /><stop offset="1" stop-color="#7c5cff" />
+              <stop offset="0" stop-color="#F5381E" /><stop offset=".5" stop-color="#F94F2A" /><stop offset="1" stop-color="#F89913" />
             </linearGradient>
           </defs>
           <circle class="ot-track" cx="60" cy="60" r="52" />
@@ -83,7 +83,7 @@
       <div id="builderSteps"></div>
 
       <div class="tray-wrap">
-        <div id="trayEmpty" class="tray-empty">👆 בחרו לחם ונתחיל לבנות</div>
+        <div id="trayEmpty" class="tray-empty">👆 בחרו מנה ונתחיל לבנות</div>
         <div id="tray" class="tray"></div>
       </div>
 

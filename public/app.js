@@ -28,7 +28,7 @@
   const STEPS = [['התקבלה', '📨'], ['בהכנה', '🔥'], ['מוכן', '🎉'], ['נאסף', '😋']];
 
   let MENU = null;
-  const builder = { product: 'salad', picks: {}, qty: 1 };
+  const builder = { product: null, picks: {}, qty: 1 };
   const keepItem = (i) => (i && (i.type === 'food' || i.type === 'drink') ? { ...i, picks: i.picks || {} } : null);
   let cart = store.get('sc_cart', []).map(keepItem).filter(Boolean);
   let favorites = store.get('sc_favorites', []).map(keepItem).filter((i) => i && i.type === 'food');
@@ -220,10 +220,10 @@
 
   function renderBuilderOptions() {
     const products = MENU.menu.products;
-    if (!productOf(builder.product)) builder.product = products[0]?.id;
+    if (builder.product && !productOf(builder.product)) builder.product = null;
     const product = productOf(builder.product);
     $('#productSwitch').innerHTML = products.map((p) => `<button type="button" data-product="${esc(p.id)}" aria-pressed="${p.id === builder.product}">${p.emoji || ''} ${esc(p.name)}<small>${productLabel(p)}</small></button>`).join('');
-    $('#builderTitle').textContent = product ? product.name : 'בונים הזמנה';
+    $('#builderTitle').textContent = product ? product.name : 'מה תרצו לאכול היום?';
     for (const g of product?.groups || []) {
       builder.picks[g.id] = (builder.picks[g.id] || []).filter((id) => groupItem(g, id)?.available);
     }
@@ -249,11 +249,20 @@
     }
     $('#qty').textContent = builder.qty;
     const ready = foodReady(builder.product, builder.picks);
-    $('#sandwichPrice').textContent = ready || product?.price != null ? money(ready ? foodPrice(builder.product, builder.picks) : product.price) : productLabel(product);
+    // Handle case when no product is selected
+    if (!product) {
+      $('#sandwichPrice').textContent = '';
+      $('#addSandwich').disabled = true;
+      $('#saveFav').disabled = true;
+      $('#addSandwich').textContent = 'הוספה לסל';
+      renderTray();
+      return;
+    }
+    $('#sandwichPrice').textContent = ready || product.price != null ? money(ready ? foodPrice(builder.product, builder.picks) : product.price) : productLabel(product);
     $('#addSandwich').disabled = !ready;
     $('#saveFav').disabled = !ready;
     $('#addSandwich').textContent = ready ? `הוספה לסל · ${money(foodPrice(builder.product, builder.picks) * builder.qty)}` : 'הוספה לסל';
-    if (!ready && product && product.price == null) $('#sandwichPrice').textContent = productLabel(product);
+    if (!ready && product.price == null) $('#sandwichPrice').textContent = productLabel(product);
     renderTray();
   }
 
@@ -401,21 +410,37 @@
 
   // ---------- drinks ----------
   function drinkCard(d, i) {
-    const inCart = cart.find((x) => x.type === 'drink' && x.drink === d.id);
-    const control = !d.available
-      ? '<button type="button" class="btn ghost add-drink" disabled>אזל</button>'
-      : inCart
-        ? `<div class="stepper small"><button type="button" data-drink-minus="${esc(d.id)}">−</button><span>${inCart.qty}</span><button type="button" data-drink-plus="${esc(d.id)}">+</button></div>`
-        : `<button type="button" class="btn ghost add-drink" data-drink-plus="${esc(d.id)}">+ הוספה</button>`;
-    return `<div class="drink glass ${d.available ? '' : 'disabled'} ${inCart ? 'in-cart' : ''}" style="--i:${i}" data-drink="${esc(d.id)}">
-      ${inCart ? `<span class="drink-badge">${inCart.qty}</span>` : ''}
-      <span class="drink-img"><img src="${esc(d.img)}" alt="${esc(d.name)}" loading="lazy" /></span>
-      <div class="drink-row"><span class="drink-name">${esc(d.name)}</span><span class="drink-price">${money(d.price)}</span></div>
-      ${control}
-    </div>`;
+    try {
+      const inCart = cart.find((x) => x.type === 'drink' && x.drink === d.id);
+      const control = !d.available
+        ? '<button type="button" class="btn ghost add-drink" disabled>אזל</button>'
+        : inCart
+          ? `<div class="stepper small"><button type="button" data-drink-minus="${esc(d.id)}">−</button><span>${inCart.qty}</span><button type="button" data-drink-plus="${esc(d.id)}">+</button></div>`
+          : `<button type="button" class="btn ghost add-drink" data-drink-plus="${esc(d.id)}">+ הוספה</button>`;
+      return `<div class="drink glass ${d.available ? '' : 'disabled'} ${inCart ? 'in-cart' : ''}" style="--i:${i}" data-drink="${esc(d.id)}">
+        ${inCart ? `<span class="drink-badge">${inCart.qty}</span>` : ''}
+        <span class="drink-img"><img src="${esc(d.img)}" alt="${esc(d.name)}" loading="lazy" /></span>
+        <div class="drink-row"><span class="drink-name">${esc(d.name)}</span><span class="drink-price">${money(d.price)}</span></div>
+        ${control}
+      </div>`;
+    } catch (err) {
+      console.error('drinkCard error:', err, 'drink:', d);
+      return `<div class="drink" style="background:red;color:white;padding:10px">שגיאה בשתייה: ${d?.name || 'unknown'}</div>`;
+    }
   }
 
   function renderDrinks(changedId) {
+    console.log('renderDrinks called, MENU:', MENU);
+    if (!MENU || !MENU.menu) {
+      console.error('MENU or MENU.menu is null/undefined');
+      $('#drinks').innerHTML = '<p style="color:red">שגיאה: תפריט לא נטען</p>';
+      return;
+    }
+    if (!MENU.menu.drinks || !MENU.menu.drinks.length) {
+      console.error('No drinks in menu:', MENU.menu.drinks);
+      $('#drinks').innerHTML = '<p style="color:red">שגיאה: אין שתיות בתפריט</p>';
+      return;
+    }
     const groups = MENU.menu.drinkGroups || [];
     let html = '';
     let i = 0;
@@ -428,6 +453,7 @@
     }
     const rest = MENU.menu.drinks.filter((d) => !used.has(d.id));
     if (rest.length) html += `<h4 class="drink-group">עוד</h4>${rest.map((d) => drinkCard(d, i++)).join('')}`;
+    console.log('Drinks HTML length:', html.length, 'Total drinks rendered:', i);
     $('#drinks').innerHTML = html;
     if (changedId) replay($(`.drink[data-drink="${CSS.escape(changedId)}"]`), 'bump');
   }

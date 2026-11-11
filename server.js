@@ -8,7 +8,7 @@ const defaultMenu = require('./defaultMenu');
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin1234';
-const SHOP_NAME = process.env.SHOP_NAME || "עגלת הסנדוויצ'ים";
+const SHOP_NAME = process.env.SHOP_NAME || "TEN-WICH";
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const TIME_ZONE = 'Asia/Jerusalem';
 
