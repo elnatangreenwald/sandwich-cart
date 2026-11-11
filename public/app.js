@@ -222,7 +222,13 @@
     const products = MENU.menu.products;
     if (builder.product && !productOf(builder.product)) builder.product = null;
     const product = productOf(builder.product);
-    $('#productSwitch').innerHTML = products.map((p) => `<button type="button" data-product="${esc(p.id)}" aria-pressed="${p.id === builder.product}">${p.emoji || ''} ${esc(p.name)}<small>${productLabel(p)}</small></button>`).join('');
+    $('#productSwitch').innerHTML = products.map((p) => `<div class="product-card" data-product="${esc(p.id)}" aria-pressed="${p.id === builder.product}" role="button" tabindex="0">
+      <div class="product-card-img"><img src="/img/${esc(p.id)}.jpg" alt="${esc(p.name)}" loading="lazy" /></div>
+      <div class="product-card-body">
+        <div class="product-card-name">${esc(p.name)}</div>
+        <div class="product-card-price">${productLabel(p)}</div>
+      </div>
+    </div>`).join('');
     $('#builderTitle').textContent = product ? product.name : 'מה תרצו לאכול היום?';
     for (const g of product?.groups || []) {
       builder.picks[g.id] = (builder.picks[g.id] || []).filter((id) => groupItem(g, id)?.available);
