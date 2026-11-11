@@ -339,7 +339,7 @@
         <button type="submit" class="act next">הוספה</button>
       </form>
     </div></div>`;
-    const promos = m.promos || { comboDiscount: 0, loyaltyGoal: 0 };
+    const promos = m.promos || { comboDiscount: 0, loyaltyGoal: 0, minEta: 10 };
     const productBlocks = (m.products || []).map((p) => p.groups.map((g) => {
       const note = g.extraPrice > 0
         ? `<div class="setting"><span class="s-ico">➕</span><div><b>מחיר תוספת</b><small>${g.max ? `עד ${g.max}` : 'בלי הגבלה'}</small></div><label class="s-input"><input class="price-input" type="number" min="0" step="0.5" value="${g.extraPrice}" data-group-extra="${esc(p.id)}__${esc(g.id)}" aria-label="מחיר תוספת" /> ₪</label></div>`
@@ -362,6 +362,11 @@
           <span class="s-ico">🎟️</span>
           <div><b>כרטיסיית ניקובים</b><small>כמה מנות עד מנה חינם · 0 = כבוי</small></div>
           <label class="s-input"><input class="price-input" type="number" min="0" max="50" step="1" value="${promos.loyaltyGoal}" data-promo="loyaltyGoal" aria-label="יעד כרטיסייה" /></label>
+        </div>
+        <div class="setting">
+          <span class="s-ico">⏱️</span>
+          <div><b>זמן הכנה מינימלי</b><small>הזמן המהיר ביותר להכנת הזמנה (דקות)</small></div>
+          <label class="s-input"><input class="price-input" type="number" min="5" max="60" step="5" value="${promos.minEta || 10}" data-promo="minEta" aria-label="זמן מינימלי" /> דק'</label>
         </div>
         <a class="setting link" href="/sign.html" target="_blank" rel="noopener">
           <span class="s-ico">🖨️</span>

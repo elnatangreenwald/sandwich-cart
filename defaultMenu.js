@@ -23,7 +23,7 @@ const opt = (id, name, extra = {}) => ({ id, name, img: `/img/${shared[id] || id
 module.exports = {
   version: 3,
   // comboDiscount: ₪ off for every food+drink pair (0 = off). loyaltyGoal: food items per free one (0 = off).
-  promos: { comboDiscount: 0, loyaltyGoal: 10 },
+  promos: { comboDiscount: 0, loyaltyGoal: 10, minEta: 10 },
   products: [
     {
       id: 'roll',

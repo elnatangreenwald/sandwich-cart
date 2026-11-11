@@ -596,6 +596,8 @@ app.put('/api/admin/menu', requireAdmin, (req, res) => {
   if ('comboDiscount' in promos && combo !== null) next.promos.comboDiscount = combo;
   const goal = Number.parseInt(promos.loyaltyGoal, 10);
   if ('loyaltyGoal' in promos && goal >= 0 && goal <= 50) next.promos.loyaltyGoal = goal;
+  const minEta = Number.parseInt(promos.minEta, 10);
+  if ('minEta' in promos && minEta >= 5 && minEta <= 60) next.promos.minEta = minEta;
   for (const incoming of Array.isArray(body.products) ? body.products : []) {
     const product = next.products.find((p) => p.id === incoming.id);
     const price = parsePrice(incoming.price);

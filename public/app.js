@@ -17,7 +17,15 @@
     set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
   };
 
-  const ETA_OPTIONS = [5, 10, 15, 20, 30, 45];
+  // ETA options will be generated dynamically based on minEta from menu
+  function getEtaOptions() {
+    const minEta = MENU?.menu?.promos?.minEta || 10;
+    const options = [];
+    for (let t = minEta; t <= minEta + 25; t += 5) {
+      options.push(t);
+    }
+    return options;
+  }
   const STATUS = {
     new: { label: 'ההזמנה התקבלה', sub: 'העגלה קיבלה את ההזמנה שלך ותתחיל להכין בקרוב', emoji: '📨', step: 0, mood: 'sent' },
     preparing: { label: 'מכינים לך עכשיו', sub: 'הסנדוויץ\' שלך על הקרש 🔪', emoji: '👨‍🍳', step: 1, mood: 'cooking' },
@@ -651,7 +659,8 @@
 
   // ---------- ETA ----------
   function renderEta() {
-    $('#etaChips').innerHTML = ETA_OPTIONS.map((m) => `<button type="button" class="chip" data-eta="${m}" aria-pressed="${eta === m && !$('#fEtaCustom').value}">${m} דק'</button>`).join('');
+    const options = getEtaOptions();
+    $('#etaChips').innerHTML = options.map((m) => `<button type="button" class="chip" data-eta="${m}" aria-pressed="${eta === m && !$('#fEtaCustom').value}">${m} דק'</button>`).join('');
     const hint = $('#etaHint');
     const text = eta === null ? '' : eta === 0 ? '🏃 אני כבר כאן!' : `⏰ נגיע בערך ב-${timeOf(Date.now() + eta * 60000)}`;
     if (hint.textContent !== text) { hint.textContent = text; replay(hint, 'pop'); }
