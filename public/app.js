@@ -660,7 +660,11 @@
   // ---------- ETA ----------
   function renderEta() {
     const options = getEtaOptions();
+    const minEta = MENU?.menu?.promos?.minEta || 10;
     $('#etaChips').innerHTML = options.map((m) => `<button type="button" class="chip" data-eta="${m}" aria-pressed="${eta === m && !$('#fEtaCustom').value}">${m} דק'</button>`).join('');
+    const customInput = $('#fEtaCustom');
+    customInput.min = minEta;
+    customInput.placeholder = `מ-${minEta} דקות`;
     const hint = $('#etaHint');
     const text = eta === null ? '' : eta === 0 ? '🏃 אני כבר כאן!' : `⏰ נגיע בערך ב-${timeOf(Date.now() + eta * 60000)}`;
     if (hint.textContent !== text) { hint.textContent = text; replay(hint, 'pop'); }
@@ -1295,7 +1299,8 @@
     });
     $('#fEtaCustom').addEventListener('input', (e) => {
       const v = Number.parseInt(e.target.value, 10);
-      eta = Number.isFinite(v) && v >= 0 && v <= 240 ? v : null;
+      const minEta = MENU?.menu?.promos?.minEta || 10;
+      eta = Number.isFinite(v) && v >= minEta && v <= 240 ? v : null;
       renderEta();
     });
     $('#orderForm').addEventListener('submit', submitOrder);
