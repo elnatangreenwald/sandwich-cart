@@ -205,10 +205,16 @@ a { color: inherit; text-decoration: none; }
    ============================================ */
 
 .top {
-  position: sticky; top: 0; z-index: 50;
-  padding: 16px 20px;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  padding: 12px 20px;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  background: transparent;
+  background: linear-gradient(180deg, var(--yellow) 0%, var(--yellow) 60%, transparent 100%);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.top.scrolled {
+  background: var(--yellow);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
 }
 
 .brand { 
@@ -266,7 +272,7 @@ a { color: inherit; text-decoration: none; }
 main {
   max-width: 640px;
   margin: 0 auto;
-  padding: 0 20px calc(100px + var(--safe-bottom));
+  padding: 90px 20px calc(100px + var(--safe-bottom)) 20px;
   position: relative;
 }
 
