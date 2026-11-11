@@ -418,16 +418,20 @@
   function drinkCard(d, i) {
     try {
       const inCart = cart.find((x) => x.type === 'drink' && x.drink === d.id);
-      const control = !d.available
-        ? '<button type="button" class="btn ghost add-drink" disabled>אזל</button>'
-        : inCart
-          ? `<div class="stepper small"><button type="button" data-drink-minus="${esc(d.id)}">−</button><span>${inCart.qty}</span><button type="button" data-drink-plus="${esc(d.id)}">+</button></div>`
-          : `<button type="button" class="btn ghost add-drink" data-drink-plus="${esc(d.id)}">+ הוספה</button>`;
-      return `<div class="drink glass ${d.available ? '' : 'disabled'} ${inCart ? 'in-cart' : ''}" style="--i:${i}" data-drink="${esc(d.id)}">
+      const qtyControl = inCart ? `
+        <div class="drink-qty-panel">
+          <div class="stepper">
+            <button type="button" data-drink-minus="${esc(d.id)}">−</button>
+            <span>${inCart.qty}</span>
+            <button type="button" data-drink-plus="${esc(d.id)}">+</button>
+          </div>
+        </div>` : '';
+      return `<div class="drink glass ${d.available ? '' : 'disabled'} ${inCart ? 'in-cart' : ''}" style="--i:${i}" data-drink="${esc(d.id)}" data-drink-add="${esc(d.id)}">
         ${inCart ? `<span class="drink-badge">${inCart.qty}</span>` : ''}
         <span class="drink-img"><img src="${esc(d.img)}" alt="${esc(d.name)}" loading="lazy" /></span>
         <div class="drink-row"><span class="drink-name">${esc(d.name)}</span><span class="drink-price">${money(d.price)}</span></div>
-        ${control}
+        ${!d.available ? '<span class="drink-unavailable">אזל</span>' : ''}
+        ${qtyControl}
       </div>`;
     } catch (err) {
       console.error('drinkCard error:', err, 'drink:', d);
@@ -1241,8 +1245,13 @@
     $('#drinks').addEventListener('click', (e) => {
       const plus = e.target.closest('[data-drink-plus]');
       const minus = e.target.closest('[data-drink-minus]');
-      if (plus) changeDrink(plus.dataset.drinkPlus, 1);
-      if (minus) changeDrink(minus.dataset.drinkMinus, -1);
+      if (plus) { e.stopPropagation(); changeDrink(plus.dataset.drinkPlus, 1); return; }
+      if (minus) { e.stopPropagation(); changeDrink(minus.dataset.drinkMinus, -1); return; }
+      // Click on card itself to add drink
+      const card = e.target.closest('[data-drink-add]');
+      if (card && !card.classList.contains('disabled') && !card.classList.contains('in-cart')) {
+        changeDrink(card.dataset.drinkAdd, 1);
+      }
     });
 
     $('#openCart').addEventListener('click', openSheet);

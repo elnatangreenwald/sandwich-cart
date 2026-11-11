@@ -1064,6 +1064,32 @@ body.ready .opt {
   color: var(--orange);
 }
 
+.drink-unavailable {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gray-text);
+  padding: 8px 16px;
+  background: var(--light-gray);
+  border-radius: var(--radius-full);
+}
+
+.drink-qty-panel {
+  width: 100%;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--light-gray);
+  animation: slideDown 0.25s var(--spring);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.drink-qty-panel .stepper {
+  justify-content: center;
+}
+
 .drink.disabled {
   opacity: 0.4;
   filter: grayscale(1);
