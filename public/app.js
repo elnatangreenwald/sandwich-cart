@@ -586,9 +586,10 @@
     if (!goal) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const s = loyaltyState;
+    const ticketSvg = `<svg viewBox="0 0 36 26" width="32" height="24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 1h28a3 3 0 0 1 3 3v5a4 4 0 0 0 0 8v5a3 3 0 0 1-3 3H4a3 3 0 0 1-3-3v-5a4 4 0 0 0 0-8V4a3 3 0 0 1 3-3Z" fill="#FFCA66" stroke="#263B40" stroke-width="2"/><path d="M12 3v20M24 3v20" stroke="#263B40" stroke-width="1.5" stroke-dasharray="2.5 2.5" opacity="0.45"/><path d="M18 8.5l1.3 2.6 2.9.4-2.1 2 .5 2.9-2.6-1.4-2.6 1.4.5-2.9-2.1-2 2.9-.4L18 8.5Z" fill="#17776C"/></svg>`;
     if (!s) {
       el.dataset.state = 'teaser';
-      el.innerHTML = `<div class="lc-head"><span class="lc-ico">🎟️</span><div><b>${goal === 10 ? 'כל מנה עשירית עלינו!' : `כל ${goal} מנות, אחת עלינו!`}</b><small>הכרטיסייה נפתחת אוטומטית בהזמנה הראשונה, לפי מספר הטלפון</small></div></div>`;
+      el.innerHTML = `<div class="lc-head"><span class="lc-ico">${ticketSvg}</span><div><b>${goal === 10 ? 'לרגל השקת האתר - כל מנה עשירית עלינו!' : `כל ${goal} מנות, אחת עלינו!`}</b></div></div><p class="lc-sub">הכרטיסייה נפתחת אוטומטית בהזמנה הראשונה, לפי מספר הטלפון</p>`;
       return;
     }
     const ready = s.rewardReady;
@@ -601,7 +602,7 @@
     }).join('');
     const left = goal - filled;
     el.innerHTML = `
-      <div class="lc-head"><span class="lc-ico">🎟️</span><div>
+      <div class="lc-head"><span class="lc-ico">${ticketSvg}</span><div>
         <b>${ready ? 'מגיע לך מנה חינם! 🎉' : 'הכרטיסייה שלי'}</b>
         <small>${ready ? 'ממומש אוטומטית בהזמנה הבאה' : `עוד ${left} ${left === 1 ? 'מנה' : 'מנות'} והבאה עלינו`}</small>
       </div><span class="lc-count">${filled}/${goal}</span></div>
@@ -664,7 +665,7 @@
     $('#etaChips').innerHTML = options.map((m) => `<button type="button" class="chip" data-eta="${m}" aria-pressed="${eta === m && !$('#fEtaCustom').value}">${m} דק'</button>`).join('');
     const customInput = $('#fEtaCustom');
     customInput.min = minEta;
-    customInput.placeholder = `מ-${minEta} דקות`;
+    customInput.placeholder = `${minEta}+ דק'`;
     const hint = $('#etaHint');
     const text = eta === null ? '' : eta === 0 ? '🏃 אני כבר כאן!' : `⏰ נגיע בערך ב-${timeOf(Date.now() + eta * 60000)}`;
     if (hint.textContent !== text) { hint.textContent = text; replay(hint, 'pop'); }
